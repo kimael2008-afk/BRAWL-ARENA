@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arène Brawl</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+  <!-- Écran d'accueil / sélection de personnage -->
+  <div id="lobby">
+    <h1>ARÈNE BRAWL</h1>
+    <p class="tagline">Choisis ton combattant, entre dans l'arène.</p>
+
+    <input id="nameInput" type="text" maxlength="16" placeholder="Ton pseudo" autocomplete="off">
+
+    <div class="roster">
+      {% for key, c in characters.items() %}
+      <button class="char-card" data-type="{{ key }}" style="--accent: {{ c.color }}">
+        <span class="char-name">{{ c.label }}</span>
+        <span class="stat">PV {{ c.maxHealth }}</span>
+        <span class="stat">Dégâts {{ c.damage }}</span>
+        <span class="stat">Cadence {{ "%.2f"|format(1/c.fireRate) }}/s</span>
+        <span class="stat">Portée {{ c.range }}</span>
+      </button>
+      {% endfor %}
+    </div>
+
+    <button id="playBtn" disabled>Entrer dans l'arène</button>
+    <p id="connStatus">Connexion au serveur…</p>
+  </div>
+
+  <!-- Écran de jeu -->
+  <div id="gameScreen" class="hidden">
+    <canvas id="arena"></canvas>
+    <div id="hud">
+      <div id="healthBar"><div id="healthFill"></div></div>
+      <div id="scoreboard"></div>
+    </div>
+    <div id="deathBanner" class="hidden">Éliminé — réapparition…</div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="{{ url_for('static', filename='js/game.js') }}"></script>
+</body>
+</html>
