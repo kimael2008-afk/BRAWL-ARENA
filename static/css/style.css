@@ -133,11 +133,15 @@ html, body {
   background: #0c0d11;
 }
 
-#arena {
-  background: #1a1d26;
+#arena-container {
   border-radius: 4px;
   box-shadow: 0 0 0 2px #2a2e3b, 0 20px 60px -20px rgba(0,0,0,0.7);
   touch-action: none;
+  line-height: 0;
+}
+#arena-container canvas {
+  border-radius: 4px;
+  image-rendering: pixelated;
 }
 
 #hud {

@@ -1,8 +1,6 @@
 (() => {
   const ARENA_W = 1000;
   const ARENA_H = 700;
-  const PLAYER_RADIUS = 18;
-  const PROJECTILE_RADIUS = 5;
 
   const lobby = document.getElementById("lobby");
   const gameScreen = document.getElementById("gameScreen");
@@ -12,25 +10,12 @@
   const healthFill = document.getElementById("healthFill");
   const scoreboardEl = document.getElementById("scoreboard");
   const deathBanner = document.getElementById("deathBanner");
-  const canvas = document.getElementById("arena");
-  const ctx = canvas.getContext("2d");
 
   let selectedType = null;
   let myId = null;
   let latestState = { players: [], projectiles: [] };
 
-  function fitCanvas() {
-    const maxW = Math.min(ARENA_W, window.innerWidth - 24);
-    const scale = maxW / ARENA_W;
-    canvas.style.width = ARENA_W * scale + "px";
-    canvas.style.height = ARENA_H * scale + "px";
-    canvas.width = ARENA_W;
-    canvas.height = ARENA_H;
-  }
-  window.addEventListener("resize", fitCanvas);
-  fitCanvas();
-
-  // ---------------- Lobby: choix du personnage ----------------
+  // ---------------- Lobby : choix du personnage ----------------
   document.querySelectorAll(".char-card").forEach((card) => {
     card.addEventListener("click", () => {
       document.querySelectorAll(".char-card").forEach((c) => c.classList.remove("selected"));
@@ -62,7 +47,7 @@
     myId = data.id;
     lobby.classList.add("hidden");
     gameScreen.classList.remove("hidden");
-    requestAnimationFrame(loop);
+    startPhaser();
   });
 
   socket.on("state", (data) => {
@@ -73,7 +58,7 @@
     socket.emit("join", { name: nameInput.value.trim(), type: selectedType });
   });
 
-  // ---------------- Contrôles ----------------
+  // ---------------- Contrôles clavier (mouvement) ----------------
   const keys = { up: false, down: false, left: false, right: false };
   let shooting = false;
   let aimAngle = 0;
@@ -88,18 +73,6 @@
     if (code === "KeyD" || code === "ArrowRight") keys.right = val;
   }
 
-  canvas.addEventListener("mousemove", (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const mx = (e.clientX - rect.left) * scaleX;
-    const my = (e.clientY - rect.top) * scaleY;
-    const me = latestState.players.find((p) => p.id === myId);
-    if (me) aimAngle = Math.atan2(my - me.y, mx - me.x);
-  });
-  canvas.addEventListener("mousedown", () => { shooting = true; });
-  window.addEventListener("mouseup", () => { shooting = false; });
-
   // Envoi des entrées au serveur ~20x / seconde
   setInterval(() => {
     if (!socket.connected || !myId) return;
@@ -111,66 +84,216 @@
     socket.emit("input", { dx, dy, angle: aimAngle, shooting });
   }, 50);
 
-  // ---------------- Rendu ----------------
-  function drawGrid() {
-    ctx.fillStyle = "#1a1d26";
-    ctx.fillRect(0, 0, ARENA_W, ARENA_H);
-    ctx.strokeStyle = "rgba(255,255,255,0.04)";
-    ctx.lineWidth = 1;
-    for (let x = 0; x <= ARENA_W; x += 50) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, ARENA_H); ctx.stroke();
-    }
-    for (let y = 0; y <= ARENA_H; y += 50) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(ARENA_W, y); ctx.stroke();
-    }
+  // ---------------- Phaser : rendu du jeu ----------------
+  const SPRITE_KEYS = ["forestier", "paysan"];
+  const DIRS = ["down", "left", "right", "up"]; // ordre des lignes dans les feuilles composées
+  const WALK_FRAMES = 6;
+  const ATTACK_FRAMES = 4;
+
+  let phaserStarted = false;
+  let scene = null;
+  const entities = {}; // id -> { container, sprite, hpFill, nameText, currentAnim, dying }
+  const lastHitStamp = {};
+  const lastDeathStamp = {};
+  const lastShotStamp = {};
+
+  function startPhaser() {
+    if (phaserStarted) return;
+    phaserStarted = true;
+
+    const config = {
+      type: Phaser.AUTO,
+      parent: "arena-container",
+      width: ARENA_W,
+      height: ARENA_H,
+      backgroundColor: "#1a1d26",
+      pixelArt: true,
+      scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+        width: ARENA_W,
+        height: ARENA_H,
+      },
+      scene: { preload, create, update },
+    };
+    new Phaser.Game(config);
   }
 
-  function drawPlayer(p) {
-    if (!p.alive) return;
-    ctx.save();
-    ctx.translate(p.x, p.y);
-
-    // corps
-    ctx.beginPath();
-    ctx.arc(0, 0, PLAYER_RADIUS, 0, Math.PI * 2);
-    ctx.fillStyle = p.color;
-    ctx.fill();
-    ctx.lineWidth = p.id === myId ? 3 : 2;
-    ctx.strokeStyle = p.id === myId ? "#ffffff" : "rgba(255,255,255,0.4)";
-    ctx.stroke();
-
-    // direction de visée
-    ctx.rotate(p.angle);
-    ctx.beginPath();
-    ctx.moveTo(PLAYER_RADIUS - 4, 0);
-    ctx.lineTo(PLAYER_RADIUS + 12, 0);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "#ffffff";
-    ctx.stroke();
-    ctx.restore();
-
-    // nom + barre de vie
-    ctx.font = "12px Rubik, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#eef0f4";
-    ctx.fillText(p.name, p.x, p.y - PLAYER_RADIUS - 18);
-
-    const barW = 40;
-    const ratio = Math.max(0, p.health / p.maxHealth);
-    ctx.fillStyle = "#2a2e3b";
-    ctx.fillRect(p.x - barW / 2, p.y - PLAYER_RADIUS - 12, barW, 5);
-    ctx.fillStyle = ratio > 0.4 ? "#5DBE7C" : "#E8624F";
-    ctx.fillRect(p.x - barW / 2, p.y - PLAYER_RADIUS - 12, barW * ratio, 5);
+  function preload() {
+    this.load.image("bg_arena", "static/assets/bg/arena.jpg");
+    SPRITE_KEYS.forEach((key) => {
+      this.load.spritesheet(`${key}_idle`, `static/assets/${key}/idle.png`, { frameWidth: 64, frameHeight: 64 });
+      this.load.spritesheet(`${key}_walk`, `static/assets/${key}/walk.png`, { frameWidth: 64, frameHeight: 64 });
+      this.load.spritesheet(`${key}_attack`, `static/assets/${key}/attack.png`, { frameWidth: 64, frameHeight: 64 });
+    });
   }
 
-  function drawProjectile(pr) {
-    ctx.beginPath();
-    ctx.arc(pr.x, pr.y, PROJECTILE_RADIUS, 0, Math.PI * 2);
-    ctx.fillStyle = pr.color;
-    ctx.shadowColor = pr.color;
-    ctx.shadowBlur = 8;
-    ctx.fill();
-    ctx.shadowBlur = 0;
+  function create() {
+    scene = this;
+
+    this.add.image(ARENA_W / 2, ARENA_H / 2, "bg_arena").setDisplaySize(ARENA_W, ARENA_H);
+
+    SPRITE_KEYS.forEach((key) => {
+      DIRS.forEach((dir, i) => {
+        this.anims.create({
+          key: `${key}_idle_${dir}`,
+          frames: [{ key: `${key}_idle`, frame: i }],
+          frameRate: 1,
+          repeat: -1,
+        });
+        this.anims.create({
+          key: `${key}_walk_${dir}`,
+          frames: this.anims.generateFrameNumbers(`${key}_walk`, {
+            start: i * WALK_FRAMES, end: i * WALK_FRAMES + WALK_FRAMES - 1,
+          }),
+          frameRate: 11,
+          repeat: -1,
+        });
+        this.anims.create({
+          key: `${key}_attack_${dir}`,
+          frames: this.anims.generateFrameNumbers(`${key}_attack`, {
+            start: i * ATTACK_FRAMES, end: i * ATTACK_FRAMES + ATTACK_FRAMES - 1,
+          }),
+          frameRate: 14,
+          repeat: 0,
+        });
+      });
+    });
+
+    this.projGraphics = this.add.graphics().setDepth(5);
+
+    this.input.on("pointermove", (pointer) => {
+      const me = entities[myId];
+      if (me) {
+        aimAngle = Phaser.Math.Angle.Between(me.container.x, me.container.y, pointer.worldX, pointer.worldY);
+      }
+    });
+    this.input.on("pointerdown", () => { shooting = true; });
+    this.input.on("pointerup", () => { shooting = false; });
+  }
+
+  function angleToDir(angle) {
+    const deg = Phaser.Math.RadToDeg(angle);
+    if (deg >= -45 && deg < 45) return "right";
+    if (deg >= 45 && deg < 135) return "down";
+    if (deg >= -135 && deg < -45) return "up";
+    return "left";
+  }
+
+  function ensureEntity(p) {
+    if (entities[p.id]) return entities[p.id];
+
+    const container = scene.add.container(p.x, p.y).setDepth(2);
+    const shadow = scene.add.ellipse(0, 22, 26, 10, 0x000000, 0.35);
+    const sprite = scene.add.sprite(0, 0, `${p.sprite}_idle`, 0).setOrigin(0.5, 0.75).setScale(1.15);
+    if (p.tint) sprite.setTint(parseInt(p.tint, 16));
+
+    const nameText = scene.add.text(0, -54, p.name, {
+      fontFamily: "Rubik, sans-serif",
+      fontSize: "12px",
+      color: p.id === myId ? "#ffffff" : "#c7cbd6",
+    }).setOrigin(0.5);
+
+    const hpBg = scene.add.rectangle(0, -42, 40, 5, 0x2a2e3b).setOrigin(0.5);
+    const hpFill = scene.add.rectangle(-20, -42, 40, 5, 0x5dbe7c).setOrigin(0, 0.5);
+
+    container.add([shadow, sprite, hpBg, hpFill, nameText]);
+
+    const entity = { container, sprite, hpFill, nameText, currentAnim: "idle_down", dying: false };
+    entities[p.id] = entity;
+    return entity;
+  }
+
+  function playAnim(entity, spriteKey, animName, dir, restart) {
+    const full = `${animName}_${dir}`;
+    if (entity.currentAnim === full && !restart) return;
+    entity.currentAnim = full;
+    entity.sprite.play(`${spriteKey}_${full}`);
+  }
+
+  function syncEntities() {
+    const seenIds = new Set();
+
+    latestState.players.forEach((p) => {
+      seenIds.add(p.id);
+      const entity = ensureEntity(p);
+      entity.container.setPosition(p.x, p.y);
+      const dir = angleToDir(p.angle);
+
+      const ratio = Math.max(0, p.health / p.maxHealth);
+      entity.hpFill.width = 40 * ratio;
+      entity.hpFill.fillColor = ratio > 0.4 ? 0x5dbe7c : 0xe8624f;
+
+      if (p.justHit && p.justHit !== lastHitStamp[p.id]) {
+        lastHitStamp[p.id] = p.justHit;
+        if (p.alive) {
+          entity.sprite.setTintFill(0xffffff);
+          scene.time.delayedCall(90, () => {
+            if (p.tint) entity.sprite.setTint(parseInt(p.tint, 16));
+            else entity.sprite.clearTint();
+          });
+        }
+      }
+
+      if (!p.alive) {
+        entity.hpFill.visible = false;
+        entity.nameText.visible = false;
+        if (p.justDied && p.justDied !== lastDeathStamp[p.id]) {
+          lastDeathStamp[p.id] = p.justDied;
+          entity.dying = true;
+          scene.tweens.add({
+            targets: entity.container,
+            alpha: 0.3,
+            angle: 90,
+            duration: 350,
+            ease: "Quad.easeOut",
+          });
+        }
+      } else {
+        if (entity.dying) {
+          entity.dying = false;
+          entity.container.setAlpha(1);
+          entity.container.angle = 0;
+        }
+        entity.hpFill.visible = true;
+        entity.nameText.visible = true;
+
+        const isAttackAnim = entity.currentAnim === `attack_${dir}`;
+        const attackStillPlaying = isAttackAnim && entity.sprite.anims.isPlaying;
+        const newShot = p.shooting && p.lastShot !== lastShotStamp[p.id];
+
+        if (newShot) {
+          lastShotStamp[p.id] = p.lastShot;
+          playAnim(entity, p.sprite, "attack", dir, true);
+        } else if (attackStillPlaying) {
+          // laisser l'animation d'attaque se terminer
+        } else if (p.moving) {
+          playAnim(entity, p.sprite, "walk", dir);
+        } else {
+          playAnim(entity, p.sprite, "idle", dir);
+        }
+      }
+    });
+
+    Object.keys(entities).forEach((id) => {
+      if (!seenIds.has(id)) {
+        entities[id].container.destroy();
+        delete entities[id];
+        delete lastHitStamp[id];
+        delete lastDeathStamp[id];
+        delete lastShotStamp[id];
+      }
+    });
+  }
+
+  function drawProjectiles() {
+    if (!scene) return;
+    scene.projGraphics.clear();
+    latestState.projectiles.forEach((pr) => {
+      const color = parseInt((pr.color || "#ffffff").replace("#", "0x"));
+      scene.projGraphics.fillStyle(color, 1);
+      scene.projGraphics.fillCircle(pr.x, pr.y, 5);
+    });
   }
 
   function updateHud() {
@@ -191,11 +314,10 @@
     }[c]));
   }
 
-  function loop() {
-    drawGrid();
-    latestState.projectiles.forEach(drawProjectile);
-    latestState.players.forEach(drawPlayer);
+  function update() {
+    if (!scene) return;
+    syncEntities();
+    drawProjectiles();
     updateHud();
-    requestAnimationFrame(loop);
   }
 })();

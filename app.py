@@ -21,18 +21,10 @@ PLAYER_RADIUS = 18
 PROJECTILE_RADIUS = 5
 
 CHARACTERS = {
-    "tank": {
-        "label": "Rocailleux",
-        "color": "#5DBE7C",
-        "maxHealth": 180,
-        "speed": 130,
-        "damage": 12,
-        "fireRate": 0.6,   # secondes entre les tirs
-        "projSpeed": 420,
-        "range": 260,
-    },
-    "assault": {
-        "label": "Vif-Argent",
+    "forestier": {
+        "label": "Forestier",
+        "sprite": "forestier",
+        "tint": None,
         "color": "#4FA8E8",
         "maxHealth": 110,
         "speed": 210,
@@ -41,8 +33,22 @@ CHARACTERS = {
         "projSpeed": 560,
         "range": 340,
     },
-    "sniper": {
-        "label": "Longue-Vue",
+    "paysan": {
+        "label": "Paysan",
+        "sprite": "paysan",
+        "tint": None,
+        "color": "#5DBE7C",
+        "maxHealth": 180,
+        "speed": 130,
+        "damage": 12,
+        "fireRate": 0.6,
+        "projSpeed": 420,
+        "range": 260,
+    },
+    "paysan_elite": {
+        "label": "Paysan d'Élite",
+        "sprite": "paysan",
+        "tint": "0xE8624F",
         "color": "#E8624F",
         "maxHealth": 85,
         "speed": 165,
@@ -72,6 +78,8 @@ def public_player(p):
         "id": p["id"],
         "name": p["name"],
         "type": p["type"],
+        "sprite": p["sprite"],
+        "tint": p["tint"],
         "color": p["color"],
         "x": p["x"],
         "y": p["y"],
@@ -79,6 +87,11 @@ def public_player(p):
         "health": p["health"],
         "maxHealth": p["maxHealth"],
         "alive": p["alive"],
+        "moving": (abs(p["dx"]) > 0.01 or abs(p["dy"]) > 0.01),
+        "shooting": p["shooting"],
+        "lastShot": p["lastShot"],
+        "justHit": p.get("justHit", 0),
+        "justDied": p.get("justDied", 0),
         "kills": p["kills"],
         "deaths": p["deaths"],
     }
@@ -106,7 +119,7 @@ def on_disconnect(*args, **kwargs):
 def on_join(data):
     from flask import request
     sid = request.sid
-    char_type = data.get("type") if data.get("type") in CHARACTERS else "assault"
+    char_type = data.get("type") if data.get("type") in CHARACTERS else "forestier"
     char = CHARACTERS[char_type]
     x, y = random_spawn()
 
@@ -114,6 +127,8 @@ def on_join(data):
         "id": sid,
         "name": (data.get("name") or "Joueur")[:16],
         "type": char_type,
+        "sprite": char["sprite"],
+        "tint": char["tint"],
         "color": char["color"],
         "x": x,
         "y": y,
@@ -131,6 +146,8 @@ def on_join(data):
         "shooting": False,
         "lastShot": 0.0,
         "respawnAt": None,
+        "justHit": 0,
+        "justDied": 0,
         "kills": 0,
         "deaths": 0,
     }
@@ -223,8 +240,10 @@ def game_loop():
             if hit_sid:
                 target = players[hit_sid]
                 target["health"] -= proj["damage"]
+                target["justHit"] = now
                 if target["health"] <= 0 and target["alive"]:
                     target["alive"] = False
+                    target["justDied"] = now
                     target["deaths"] += 1
                     target["respawnAt"] = now + RESPAWN_DELAY
                     shooter = players.get(proj["owner"])

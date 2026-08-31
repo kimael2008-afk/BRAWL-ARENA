@@ -33,7 +33,7 @@
 
   <!-- Écran de jeu -->
   <div id="gameScreen" class="hidden">
-    <canvas id="arena"></canvas>
+    <div id="arena-container"></div>
     <div id="hud">
       <div id="healthBar"><div id="healthFill"></div></div>
       <div id="scoreboard"></div>
@@ -42,6 +42,7 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js"></script>
   <script src="{{ url_for('static', filename='js/game.js') }}"></script>
 </body>
 </html>
