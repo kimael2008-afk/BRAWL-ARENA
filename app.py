@@ -26,10 +26,10 @@ WEAPON_SPAWN_CHANCE_PER_TICK = 0.015
 WEAPON_PICKUP_RADIUS = 26
 
 WEAPON_TYPES = {
-    "fists": {"label": "Poings", "color": "#8b90a0", "damage": 5, "fireRate": 0.45, "projSpeed": 420, "range": 180},
-    "sword": {"label": "Épée", "color": "#4FA8E8", "damage": 11, "fireRate": 0.30, "projSpeed": 560, "range": 300},
-    "bow": {"label": "Arc", "color": "#5DBE7C", "damage": 8, "fireRate": 0.20, "projSpeed": 700, "range": 480},
-    "mace": {"label": "Masse", "color": "#E8624F", "damage": 20, "fireRate": 0.65, "projSpeed": 380, "range": 220},
+    "fists": {"label": "Poings", "color": "#8b90a0", "damage": 4, "fireRate": 0.45, "projSpeed": 420, "range": 180},
+    "sword": {"label": "Épée", "color": "#4FA8E8", "damage": 8, "fireRate": 0.30, "projSpeed": 560, "range": 300},
+    "bow": {"label": "Arc", "color": "#5DBE7C", "damage": 6, "fireRate": 0.20, "projSpeed": 700, "range": 480},
+    "mace": {"label": "Masse", "color": "#E8624F", "damage": 14, "fireRate": 0.65, "projSpeed": 380, "range": 220},
 }
 MAX_MONSTERS = 6
 MONSTER_SPAWN_CHANCE_PER_TICK = 0.02  # ~1 toutes les 1.6s si sous le max
@@ -38,8 +38,34 @@ SLIME_HEALTH = 30
 SLIME_LIFESPAN = 60.0   # secondes avant disparition si pas tué
 SLIME_KILL_REWARD = 1   # ajouté au compteur de kills du tueur
 SLIME_SPEED = 55
-SLIME_CONTACT_DAMAGE = 6
-SLIME_CONTACT_COOLDOWN = 0.8  # secondes entre deux morsures sur le même joueur
+SLIME_CONTACT_DAMAGE = 3
+SLIME_CONTACT_COOLDOWN = 1.2  # secondes entre deux morsures sur le même joueur
+
+# Obstacles solides (arbres, rochers, palissades) repérés sur le fond de carte.
+# Chaque entrée : (x, y, rayon) dans l'espace 1000x700 de l'arène.
+OBSTACLES = [
+    (90, 80, 95),    # grande canopée haut-gauche
+    (520, 380, 62),  # arbre isolé avec tronc visible
+    (870, 560, 82),  # bosquet bas-droite
+    (955, 610, 65),  # second arbre bas-droite
+    (160, 160, 34), (230, 140, 34), (300, 150, 34), (370, 170, 34),
+    (430, 190, 34), (480, 220, 34), (510, 250, 30),  # palissade tressée (haut)
+    (300, 300, 34), (220, 330, 34), (150, 360, 34),
+    (90, 390, 34), (60, 430, 30),                    # palissade tressée (bas)
+]
+
+
+def resolve_obstacles(x, y, radius):
+    """Empêche x,y de pénétrer un obstacle ; renvoie la position corrigée."""
+    for ox, oy, orad in OBSTACLES:
+        dx, dy = x - ox, y - oy
+        dist = math.hypot(dx, dy)
+        min_dist = orad + radius
+        if dist < min_dist and dist > 0.001:
+            push = (min_dist - dist)
+            x += (dx / dist) * push
+            y += (dy / dist) * push
+    return x, y
 
 CHARACTERS = {
     "forestier": {
@@ -99,8 +125,11 @@ def random_spawn():
 def spawn_weapon():
     wid = str(uuid.uuid4())
     wtype = random.choice([k for k in WEAPON_TYPES if k != "fists"])
-    x = random.uniform(30, ARENA_W - 30)
-    y = random.uniform(30, ARENA_H - 30)
+    for _ in range(20):
+        x = random.uniform(30, ARENA_W - 30)
+        y = random.uniform(30, ARENA_H - 30)
+        if not in_obstacle(x, y, 20):
+            break
     weapons[wid] = {"id": wid, "type": wtype, "x": x, "y": y}
 
 
@@ -128,10 +157,20 @@ def kill_player(p, now):
         equip_weapon(p, "fists")
 
 
+def in_obstacle(x, y, margin=0):
+    for ox, oy, orad in OBSTACLES:
+        if math.hypot(x - ox, y - oy) < orad + margin:
+            return True
+    return False
+
+
 def spawn_slime():
     mid = str(uuid.uuid4())
-    x = random.uniform(SLIME_RADIUS + 20, ARENA_W - SLIME_RADIUS - 20)
-    y = random.uniform(SLIME_RADIUS + 20, ARENA_H - SLIME_RADIUS - 20)
+    for _ in range(20):
+        x = random.uniform(SLIME_RADIUS + 20, ARENA_W - SLIME_RADIUS - 20)
+        y = random.uniform(SLIME_RADIUS + 20, ARENA_H - SLIME_RADIUS - 20)
+        if not in_obstacle(x, y, SLIME_RADIUS):
+            break
     angle = random.uniform(0, math.pi * 2)
     monsters[mid] = {
         "id": mid,
@@ -270,10 +309,12 @@ def spawn_projectile(p):
         "y": p["y"] + math.sin(p["angle"]) * (PLAYER_RADIUS + 4),
         "vx": math.cos(p["angle"]) * p["projSpeed"],
         "vy": math.sin(p["angle"]) * p["projSpeed"],
+        "angle": p["angle"],
         "damage": p["damage"],
         "traveled": 0.0,
         "range": p["range"],
-        "color": p["color"],
+        "color": WEAPON_TYPES[p["weapon"]]["color"],
+        "weapon": p["weapon"],
     }
 
 
@@ -308,6 +349,7 @@ def game_loop():
                 m["moveAngle"] = -m["moveAngle"]
             else:
                 m["y"] = ny
+            m["x"], m["y"] = resolve_obstacles(m["x"], m["y"], SLIME_RADIUS)
 
             for sid, p in players.items():
                 if not p["alive"]:
@@ -341,6 +383,7 @@ def game_loop():
             p["y"] += p["dy"] * p["speed"] * dt
             p["x"] = max(PLAYER_RADIUS, min(ARENA_W - PLAYER_RADIUS, p["x"]))
             p["y"] = max(PLAYER_RADIUS, min(ARENA_H - PLAYER_RADIUS, p["y"]))
+            p["x"], p["y"] = resolve_obstacles(p["x"], p["y"], PLAYER_RADIUS)
 
             # Ramassage d'une arme au sol
             for wid, w in list(weapons.items()):
@@ -408,7 +451,7 @@ def game_loop():
         socketio.emit("state", {
             "players": [public_player(p) for p in players.values()],
             "projectiles": [
-                {"id": pr["id"], "x": pr["x"], "y": pr["y"], "color": pr["color"]}
+                {"id": pr["id"], "x": pr["x"], "y": pr["y"], "color": pr["color"], "angle": pr["angle"], "weapon": pr["weapon"]}
                 for pr in projectiles.values()
             ],
             "monsters": [public_monster(m) for m in monsters.values()],

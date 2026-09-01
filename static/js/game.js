@@ -202,6 +202,9 @@
     const sprite = scene.add.sprite(0, 8, `${p.sprite}_idle`, 0).setOrigin(0.484, 0.703).setScale(1.2);
     if (p.tint) sprite.setTint(parseInt(p.tint, 16));
 
+    const weaponIcon = scene.add.rectangle(14, 6, 8, 8, 0x8b90a0).setOrigin(0.5).setAngle(45).setVisible(false);
+    weaponIcon.setStrokeStyle(1.5, 0xffffff, 0.9);
+
     const nameText = scene.add.text(0, -46, p.name, {
       fontFamily: "Rubik, sans-serif",
       fontSize: "12px",
@@ -211,9 +214,9 @@
     const hpBg = scene.add.rectangle(0, -35, 40, 5, 0x2a2e3b).setOrigin(0.5);
     const hpFill = scene.add.rectangle(-20, -35, 40, 5, 0x5dbe7c).setOrigin(0, 0.5);
 
-    container.add([shadow, sprite, hpBg, hpFill, nameText]);
+    container.add([shadow, sprite, weaponIcon, hpBg, hpFill, nameText]);
 
-    const entity = { container, sprite, hpFill, nameText, currentAnim: "idle_down", dying: false };
+    const entity = { container, sprite, weaponIcon, hpFill, nameText, currentAnim: "idle_down", dying: false };
     entities[p.id] = entity;
     return entity;
   }
@@ -233,6 +236,18 @@
       const entity = ensureEntity(p);
       entity.container.setPosition(p.x, p.y);
       const dir = angleToDir(p.angle);
+
+      // Icône d'arme tenue en main
+      if (p.weapon && p.weapon !== "fists" && p.alive) {
+        const wcolor = parseInt((WEAPON_COLORS[p.weapon] || "#ffffff").replace("#", "0x"));
+        entity.weaponIcon.setFillStyle(wcolor);
+        entity.weaponIcon.setVisible(true);
+        const hx = Math.cos(p.angle) * 16;
+        const hy = Math.sin(p.angle) * 16 + 8;
+        entity.weaponIcon.setPosition(hx, hy);
+      } else {
+        entity.weaponIcon.setVisible(false);
+      }
 
       const ratio = Math.max(0, p.health / p.maxHealth);
       entity.hpFill.width = 40 * ratio;
@@ -306,8 +321,37 @@
     scene.projGraphics.clear();
     latestState.projectiles.forEach((pr) => {
       const color = parseInt((pr.color || "#ffffff").replace("#", "0x"));
+      const angle = pr.angle || 0;
       scene.projGraphics.fillStyle(color, 1);
-      scene.projGraphics.fillCircle(pr.x, pr.y, 5);
+      scene.projGraphics.lineStyle(1.5, 0xffffff, 0.8);
+
+      if (pr.weapon === "bow") {
+        // flèche fine orientée dans le sens du tir
+        const cos = Math.cos(angle), sin = Math.sin(angle);
+        const tip = { x: pr.x + cos * 9, y: pr.y + sin * 9 };
+        const tail = { x: pr.x - cos * 9, y: pr.y - sin * 9 };
+        const perp = { x: -sin * 2.5, y: cos * 2.5 };
+        scene.projGraphics.beginPath();
+        scene.projGraphics.moveTo(tip.x, tip.y);
+        scene.projGraphics.lineTo(tail.x + perp.x, tail.y + perp.y);
+        scene.projGraphics.lineTo(tail.x - perp.x, tail.y - perp.y);
+        scene.projGraphics.closePath();
+        scene.projGraphics.fillPath();
+      } else if (pr.weapon === "sword") {
+        // petite lame allongée
+        const cos = Math.cos(angle), sin = Math.sin(angle);
+        const tip = { x: pr.x + cos * 8, y: pr.y + sin * 8 };
+        const tail = { x: pr.x - cos * 8, y: pr.y - sin * 8 };
+        scene.projGraphics.lineStyle(3, color, 1);
+        scene.projGraphics.lineBetween(tail.x, tail.y, tip.x, tip.y);
+      } else if (pr.weapon === "mace") {
+        // boule lourde
+        scene.projGraphics.fillCircle(pr.x, pr.y, 7);
+        scene.projGraphics.strokeCircle(pr.x, pr.y, 7);
+      } else {
+        // poings : petit point
+        scene.projGraphics.fillCircle(pr.x, pr.y, 4);
+      }
     });
   }
 
@@ -346,6 +390,7 @@
   }
 
   const WEAPON_LABELS = { fists: "Poings", sword: "Épée", bow: "Arc", mace: "Masse" };
+  const WEAPON_COLORS = { sword: "#4FA8E8", bow: "#5DBE7C", mace: "#E8624F" };
 
   function drawWeapons() {
     if (!scene) return;
