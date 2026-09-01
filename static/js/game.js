@@ -8,12 +8,13 @@
   const playBtn = document.getElementById("playBtn");
   const connStatus = document.getElementById("connStatus");
   const healthFill = document.getElementById("healthFill");
+  const weaponLabelEl = document.getElementById("weaponLabel");
   const scoreboardEl = document.getElementById("scoreboard");
   const deathBanner = document.getElementById("deathBanner");
 
   let selectedType = null;
   let myId = null;
-  let latestState = { players: [], projectiles: [], monsters: [] };
+  let latestState = { players: [], projectiles: [], monsters: [], weapons: [] };
 
   // ---------------- Lobby : choix du personnage ----------------
   document.querySelectorAll(".char-card").forEach((card) => {
@@ -162,6 +163,7 @@
 
     this.projGraphics = this.add.graphics().setDepth(5);
     this.monsterGraphics = this.add.graphics().setDepth(3);
+    this.weaponGraphics = this.add.graphics().setDepth(1);
 
     this.input.on("pointermove", (pointer) => {
       const me = entities[myId];
@@ -185,18 +187,18 @@
     if (entities[p.id]) return entities[p.id];
 
     const container = scene.add.container(p.x, p.y).setDepth(2);
-    const shadow = scene.add.ellipse(0, 20, 24, 9, 0x000000, 0.45);
-    const sprite = scene.add.sprite(0, 0, `${p.sprite}_idle`, 0).setOrigin(0.5, 0.8).setScale(1.0);
+    const shadow = scene.add.ellipse(0, 3, 18, 6, 0x000000, 0.45);
+    const sprite = scene.add.sprite(0, 0, `${p.sprite}_idle`, 0).setOrigin(0.484, 0.703).setScale(1.2);
     if (p.tint) sprite.setTint(parseInt(p.tint, 16));
 
-    const nameText = scene.add.text(0, -54, p.name, {
+    const nameText = scene.add.text(0, -46, p.name, {
       fontFamily: "Rubik, sans-serif",
       fontSize: "12px",
       color: p.id === myId ? "#ffffff" : "#c7cbd6",
     }).setOrigin(0.5);
 
-    const hpBg = scene.add.rectangle(0, -42, 40, 5, 0x2a2e3b).setOrigin(0.5);
-    const hpFill = scene.add.rectangle(-20, -42, 40, 5, 0x5dbe7c).setOrigin(0, 0.5);
+    const hpBg = scene.add.rectangle(0, -35, 40, 5, 0x2a2e3b).setOrigin(0.5);
+    const hpFill = scene.add.rectangle(-20, -35, 40, 5, 0x5dbe7c).setOrigin(0, 0.5);
 
     container.add([shadow, sprite, hpBg, hpFill, nameText]);
 
@@ -331,11 +333,46 @@
     });
   }
 
+  function drawWeapons() {
+    if (!scene) return;
+    scene.weaponGraphics.clear();
+    const t = scene.time.now / 1000;
+
+    latestState.weapons.forEach((w) => {
+      const bob = Math.sin(t * 3 + w.x) * 3;
+      const color = parseInt((w.color || "#ffffff").replace("#", "0x"));
+      const y = w.y + bob;
+
+      // halo lumineux
+      scene.weaponGraphics.fillStyle(color, 0.18);
+      scene.weaponGraphics.fillCircle(w.x, y, 20);
+
+      // losange représentant l'arme
+      scene.weaponGraphics.fillStyle(color, 1);
+      scene.weaponGraphics.lineStyle(2, 0xffffff, 0.9);
+      scene.weaponGraphics.beginPath();
+      scene.weaponGraphics.moveTo(w.x, y - 12);
+      scene.weaponGraphics.lineTo(w.x + 9, y);
+      scene.weaponGraphics.lineTo(w.x, y + 12);
+      scene.weaponGraphics.lineTo(w.x - 9, y);
+      scene.weaponGraphics.closePath();
+      scene.weaponGraphics.fillPath();
+      scene.weaponGraphics.strokePath();
+
+      // ombre au sol
+      scene.weaponGraphics.fillStyle(0x000000, 0.3);
+      scene.weaponGraphics.fillEllipse(w.x, w.y + 14, 16, 5);
+    });
+  }
+
+  const WEAPON_LABELS = { fists: "Poings", sword: "Épée", bow: "Arc", mace: "Masse" };
+
   function updateHud() {
     const me = latestState.players.find((p) => p.id === myId);
     if (me) {
       healthFill.style.width = Math.max(0, (me.health / me.maxHealth) * 100) + "%";
       deathBanner.classList.toggle("hidden", me.alive);
+      if (weaponLabelEl) weaponLabelEl.textContent = WEAPON_LABELS[me.weapon] || me.weapon;
     }
     const sorted = [...latestState.players].sort((a, b) => b.kills - a.kills).slice(0, 6);
     scoreboardEl.innerHTML = sorted
@@ -352,6 +389,7 @@
   function update() {
     if (!scene) return;
     syncEntities();
+    drawWeapons();
     drawMonsters();
     drawProjectiles();
     updateHud();

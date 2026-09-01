@@ -20,7 +20,17 @@ RESPAWN_DELAY = 3.0
 PLAYER_RADIUS = 18
 PROJECTILE_RADIUS = 5
 
-# --- Monstres (slimes) ---
+# --- Armes au sol ---
+MAX_WEAPONS_ON_GROUND = 5
+WEAPON_SPAWN_CHANCE_PER_TICK = 0.015
+WEAPON_PICKUP_RADIUS = 26
+
+WEAPON_TYPES = {
+    "fists": {"label": "Poings", "color": "#8b90a0", "damage": 5, "fireRate": 0.45, "projSpeed": 420, "range": 180},
+    "sword": {"label": "Épée", "color": "#4FA8E8", "damage": 11, "fireRate": 0.30, "projSpeed": 560, "range": 300},
+    "bow": {"label": "Arc", "color": "#5DBE7C", "damage": 8, "fireRate": 0.20, "projSpeed": 700, "range": 480},
+    "mace": {"label": "Masse", "color": "#E8624F", "damage": 20, "fireRate": 0.65, "projSpeed": 380, "range": 220},
+}
 MAX_MONSTERS = 6
 MONSTER_SPAWN_CHANCE_PER_TICK = 0.02  # ~1 toutes les 1.6s si sous le max
 SLIME_RADIUS = 16
@@ -76,10 +86,32 @@ SPAWN_POINTS = [
 players = {}       # sid -> player dict
 projectiles = {}   # id -> projectile dict
 monsters = {}       # id -> monster dict
+weapons = {}         # id -> weapon dict (au sol)
 
 
 def random_spawn():
     return random.choice(SPAWN_POINTS)
+
+
+def spawn_weapon():
+    wid = str(uuid.uuid4())
+    wtype = random.choice([k for k in WEAPON_TYPES if k != "fists"])
+    x = random.uniform(30, ARENA_W - 30)
+    y = random.uniform(30, ARENA_H - 30)
+    weapons[wid] = {"id": wid, "type": wtype, "x": x, "y": y}
+
+
+def public_weapon(w):
+    return {"id": w["id"], "type": w["type"], "color": WEAPON_TYPES[w["type"]]["color"]}
+
+
+def equip_weapon(p, wtype):
+    stats = WEAPON_TYPES[wtype]
+    p["weapon"] = wtype
+    p["damage"] = stats["damage"]
+    p["fireRate"] = stats["fireRate"]
+    p["projSpeed"] = stats["projSpeed"]
+    p["range"] = stats["range"]
 
 
 def spawn_slime():
@@ -129,6 +161,7 @@ def public_player(p):
         "justDied": p.get("justDied", 0),
         "kills": p["kills"],
         "deaths": p["deaths"],
+        "weapon": p["weapon"],
     }
 
 
@@ -156,6 +189,7 @@ def on_join(data):
     sid = request.sid
     char_type = data.get("type") if data.get("type") in CHARACTERS else "forestier"
     char = CHARACTERS[char_type]
+    fists = WEAPON_TYPES["fists"]
     x, y = random_spawn()
 
     players[sid] = {
@@ -171,10 +205,11 @@ def on_join(data):
         "dx": 0,
         "dy": 0,
         "speed": char["speed"],
-        "damage": char["damage"],
-        "fireRate": char["fireRate"],
-        "projSpeed": char["projSpeed"],
-        "range": char["range"],
+        "weapon": "fists",
+        "damage": fists["damage"],
+        "fireRate": fists["fireRate"],
+        "projSpeed": fists["projSpeed"],
+        "range": fists["range"],
         "maxHealth": char["maxHealth"],
         "health": char["maxHealth"],
         "alive": True,
@@ -239,6 +274,10 @@ def game_loop():
         if len(monsters) < MAX_MONSTERS and random.random() < MONSTER_SPAWN_CHANCE_PER_TICK:
             spawn_slime()
 
+        # Apparition aléatoire des armes au sol
+        if len(weapons) < MAX_WEAPONS_ON_GROUND and random.random() < WEAPON_SPAWN_CHANCE_PER_TICK:
+            spawn_weapon()
+
         # Mouvement + tir des joueurs
         for sid, p in list(players.items()):
             if not p["alive"]:
@@ -254,6 +293,14 @@ def game_loop():
             p["y"] += p["dy"] * p["speed"] * dt
             p["x"] = max(PLAYER_RADIUS, min(ARENA_W - PLAYER_RADIUS, p["x"]))
             p["y"] = max(PLAYER_RADIUS, min(ARENA_H - PLAYER_RADIUS, p["y"]))
+
+            # Ramassage d'une arme au sol
+            for wid, w in list(weapons.items()):
+                dist = math.hypot(p["x"] - w["x"], p["y"] - w["y"])
+                if dist <= WEAPON_PICKUP_RADIUS:
+                    equip_weapon(p, w["type"])
+                    del weapons[wid]
+                    break
 
             if p["shooting"] and (now - p["lastShot"]) >= p["fireRate"]:
                 p["lastShot"] = now
@@ -307,6 +354,11 @@ def game_loop():
                     target["justDied"] = now
                     target["deaths"] += 1
                     target["respawnAt"] = now + RESPAWN_DELAY
+                    # L'arme équipée tombe au sol à l'endroit de la mort
+                    if target["weapon"] != "fists":
+                        wid = str(uuid.uuid4())
+                        weapons[wid] = {"id": wid, "type": target["weapon"], "x": target["x"], "y": target["y"]}
+                        equip_weapon(target, "fists")
                     shooter = players.get(proj["owner"])
                     if shooter:
                         shooter["kills"] += 1
@@ -320,6 +372,7 @@ def game_loop():
                 for pr in projectiles.values()
             ],
             "monsters": [public_monster(m) for m in monsters.values()],
+            "weapons": [public_weapon(w) for w in weapons.values()],
         })
 
 

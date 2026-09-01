@@ -134,6 +134,9 @@ html, body {
 }
 
 #arena-container {
+  width: min(1000px, 94vw);
+  aspect-ratio: 1000 / 700;
+  margin: 0 auto;
   border-radius: 4px;
   box-shadow: 0 0 0 2px #2a2e3b, 0 20px 60px -20px rgba(0,0,0,0.7);
   touch-action: none;
@@ -168,6 +171,18 @@ html, body {
   width: 100%;
   background: linear-gradient(90deg, #5DBE7C, #4FA8E8);
   transition: width 0.15s ease;
+}
+
+#weaponLabel {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: rgba(29, 32, 41, 0.85);
+  border: 1px solid #2a2e3b;
+  border-radius: 8px;
+  padding: 3px 10px;
+  display: inline-block;
 }
 
 #scoreboard {
