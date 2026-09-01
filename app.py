@@ -35,8 +35,11 @@ MAX_MONSTERS = 6
 MONSTER_SPAWN_CHANCE_PER_TICK = 0.02  # ~1 toutes les 1.6s si sous le max
 SLIME_RADIUS = 16
 SLIME_HEALTH = 30
-SLIME_LIFESPAN = 25.0   # secondes avant disparition si pas tué
+SLIME_LIFESPAN = 60.0   # secondes avant disparition si pas tué
 SLIME_KILL_REWARD = 1   # ajouté au compteur de kills du tueur
+SLIME_SPEED = 55
+SLIME_CONTACT_DAMAGE = 6
+SLIME_CONTACT_COOLDOWN = 0.8  # secondes entre deux morsures sur le même joueur
 
 CHARACTERS = {
     "forestier": {
@@ -114,10 +117,22 @@ def equip_weapon(p, wtype):
     p["range"] = stats["range"]
 
 
+def kill_player(p, now):
+    p["alive"] = False
+    p["justDied"] = now
+    p["deaths"] += 1
+    p["respawnAt"] = now + RESPAWN_DELAY
+    if p["weapon"] != "fists":
+        wid = str(uuid.uuid4())
+        weapons[wid] = {"id": wid, "type": p["weapon"], "x": p["x"], "y": p["y"]}
+        equip_weapon(p, "fists")
+
+
 def spawn_slime():
     mid = str(uuid.uuid4())
     x = random.uniform(SLIME_RADIUS + 20, ARENA_W - SLIME_RADIUS - 20)
     y = random.uniform(SLIME_RADIUS + 20, ARENA_H - SLIME_RADIUS - 20)
+    angle = random.uniform(0, math.pi * 2)
     monsters[mid] = {
         "id": mid,
         "type": "slime",
@@ -126,6 +141,9 @@ def spawn_slime():
         "health": SLIME_HEALTH,
         "maxHealth": SLIME_HEALTH,
         "spawnAt": time.time(),
+        "moveAngle": angle,
+        "nextTurnAt": time.time() + random.uniform(1.5, 3.5),
+        "lastBite": {},  # sid -> timestamp du dernier contact
     }
 
 
@@ -274,6 +292,36 @@ def game_loop():
         if len(monsters) < MAX_MONSTERS and random.random() < MONSTER_SPAWN_CHANCE_PER_TICK:
             spawn_slime()
 
+        # Déplacement erratique des slimes + collision de contact avec les joueurs
+        for m in monsters.values():
+            if now >= m["nextTurnAt"]:
+                m["moveAngle"] = random.uniform(0, math.pi * 2)
+                m["nextTurnAt"] = now + random.uniform(1.5, 3.5)
+
+            nx = m["x"] + math.cos(m["moveAngle"]) * SLIME_SPEED * dt
+            ny = m["y"] + math.sin(m["moveAngle"]) * SLIME_SPEED * dt
+            if nx < SLIME_RADIUS or nx > ARENA_W - SLIME_RADIUS:
+                m["moveAngle"] = math.pi - m["moveAngle"]
+            else:
+                m["x"] = nx
+            if ny < SLIME_RADIUS or ny > ARENA_H - SLIME_RADIUS:
+                m["moveAngle"] = -m["moveAngle"]
+            else:
+                m["y"] = ny
+
+            for sid, p in players.items():
+                if not p["alive"]:
+                    continue
+                dist = math.hypot(p["x"] - m["x"], p["y"] - m["y"])
+                if dist <= SLIME_RADIUS + PLAYER_RADIUS:
+                    last = m["lastBite"].get(sid, 0)
+                    if now - last >= SLIME_CONTACT_COOLDOWN:
+                        m["lastBite"][sid] = now
+                        p["health"] -= SLIME_CONTACT_DAMAGE
+                        p["justHit"] = now
+                        if p["health"] <= 0 and p["alive"]:
+                            kill_player(p, now)
+
         # Apparition aléatoire des armes au sol
         if len(weapons) < MAX_WEAPONS_ON_GROUND and random.random() < WEAPON_SPAWN_CHANCE_PER_TICK:
             spawn_weapon()
@@ -350,15 +398,7 @@ def game_loop():
                 target["health"] -= proj["damage"]
                 target["justHit"] = now
                 if target["health"] <= 0 and target["alive"]:
-                    target["alive"] = False
-                    target["justDied"] = now
-                    target["deaths"] += 1
-                    target["respawnAt"] = now + RESPAWN_DELAY
-                    # L'arme équipée tombe au sol à l'endroit de la mort
-                    if target["weapon"] != "fists":
-                        wid = str(uuid.uuid4())
-                        weapons[wid] = {"id": wid, "type": target["weapon"], "x": target["x"], "y": target["y"]}
-                        equip_weapon(target, "fists")
+                    kill_player(target, now)
                     shooter = players.get(proj["owner"])
                     if shooter:
                         shooter["kills"] += 1

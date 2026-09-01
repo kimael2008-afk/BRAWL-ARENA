@@ -90,6 +90,13 @@
   const DIRS = ["down", "left", "right", "up"]; // ordre des lignes dans les feuilles composées
   const WALK_FRAMES = 6;
   const ATTACK_FRAMES = 4;
+  const ATTACK_VARIANTS = ["attack", "attack_thrust", "attack_slash2"];
+  const WEAPON_ATTACK_ANIM = {
+    fists: "attack_thrust",
+    bow: "attack_thrust",
+    sword: "attack",
+    mace: "attack_slash2",
+  };
 
   let phaserStarted = false;
   let scene = null;
@@ -125,7 +132,9 @@
     SPRITE_KEYS.forEach((key) => {
       this.load.spritesheet(`${key}_idle`, `static/assets/${key}/idle.png`, { frameWidth: 64, frameHeight: 64 });
       this.load.spritesheet(`${key}_walk`, `static/assets/${key}/walk.png`, { frameWidth: 64, frameHeight: 64 });
-      this.load.spritesheet(`${key}_attack`, `static/assets/${key}/attack.png`, { frameWidth: 64, frameHeight: 64 });
+      ATTACK_VARIANTS.forEach((variant) => {
+        this.load.spritesheet(`${key}_${variant}`, `static/assets/${key}/${variant}.png`, { frameWidth: 64, frameHeight: 64 });
+      });
     });
   }
 
@@ -150,13 +159,15 @@
           frameRate: 11,
           repeat: -1,
         });
-        this.anims.create({
-          key: `${key}_attack_${dir}`,
-          frames: this.anims.generateFrameNumbers(`${key}_attack`, {
-            start: i * ATTACK_FRAMES, end: i * ATTACK_FRAMES + ATTACK_FRAMES - 1,
-          }),
-          frameRate: 14,
-          repeat: 0,
+        ATTACK_VARIANTS.forEach((variant) => {
+          this.anims.create({
+            key: `${key}_${variant}_${dir}`,
+            frames: this.anims.generateFrameNumbers(`${key}_${variant}`, {
+              start: i * ATTACK_FRAMES, end: i * ATTACK_FRAMES + ATTACK_FRAMES - 1,
+            }),
+            frameRate: 14,
+            repeat: 0,
+          });
         });
       });
     });
@@ -187,8 +198,8 @@
     if (entities[p.id]) return entities[p.id];
 
     const container = scene.add.container(p.x, p.y).setDepth(2);
-    const shadow = scene.add.ellipse(0, 3, 18, 6, 0x000000, 0.45);
-    const sprite = scene.add.sprite(0, 0, `${p.sprite}_idle`, 0).setOrigin(0.484, 0.703).setScale(1.2);
+    const shadow = scene.add.ellipse(0, 2, 20, 7, 0x000000, 0.5);
+    const sprite = scene.add.sprite(0, 8, `${p.sprite}_idle`, 0).setOrigin(0.484, 0.703).setScale(1.2);
     if (p.tint) sprite.setTint(parseInt(p.tint, 16));
 
     const nameText = scene.add.text(0, -46, p.name, {
@@ -261,13 +272,14 @@
         entity.hpFill.visible = true;
         entity.nameText.visible = true;
 
-        const isAttackAnim = entity.currentAnim === `attack_${dir}`;
+        const attackAnimName = WEAPON_ATTACK_ANIM[p.weapon] || "attack";
+        const isAttackAnim = entity.currentAnim === `${attackAnimName}_${dir}`;
         const attackStillPlaying = isAttackAnim && entity.sprite.anims.isPlaying;
         const newShot = p.shooting && p.lastShot !== lastShotStamp[p.id];
 
         if (newShot) {
           lastShotStamp[p.id] = p.lastShot;
-          playAnim(entity, p.sprite, "attack", dir, true);
+          playAnim(entity, p.sprite, attackAnimName, dir, true);
         } else if (attackStillPlaying) {
           // laisser l'animation d'attaque se terminer
         } else if (p.moving) {
@@ -333,39 +345,76 @@
     });
   }
 
+  const WEAPON_LABELS = { fists: "Poings", sword: "Épée", bow: "Arc", mace: "Masse" };
+
   function drawWeapons() {
     if (!scene) return;
     scene.weaponGraphics.clear();
     const t = scene.time.now / 1000;
 
     latestState.weapons.forEach((w) => {
-      const bob = Math.sin(t * 3 + w.x) * 3;
+      const bob = Math.sin(t * 3 + w.x) * 4;
       const color = parseInt((w.color || "#ffffff").replace("#", "0x"));
       const y = w.y + bob;
 
-      // halo lumineux
-      scene.weaponGraphics.fillStyle(color, 0.18);
-      scene.weaponGraphics.fillCircle(w.x, y, 20);
+      // ombre au sol (fixe, ne suit pas le flottement)
+      scene.weaponGraphics.fillStyle(0x000000, 0.35);
+      scene.weaponGraphics.fillEllipse(w.x, w.y + 16, 20, 6);
 
-      // losange représentant l'arme
+      // halo lumineux pulsant
+      const pulse = 24 + Math.sin(t * 4 + w.x) * 4;
+      scene.weaponGraphics.fillStyle(color, 0.25);
+      scene.weaponGraphics.fillCircle(w.x, y, pulse);
+      scene.weaponGraphics.fillStyle(0xffffff, 0.12);
+      scene.weaponGraphics.fillCircle(w.x, y, pulse * 0.55);
+
+      // losange représentant l'arme, plus grand et contour blanc épais
       scene.weaponGraphics.fillStyle(color, 1);
-      scene.weaponGraphics.lineStyle(2, 0xffffff, 0.9);
+      scene.weaponGraphics.lineStyle(3, 0xffffff, 1);
       scene.weaponGraphics.beginPath();
-      scene.weaponGraphics.moveTo(w.x, y - 12);
-      scene.weaponGraphics.lineTo(w.x + 9, y);
-      scene.weaponGraphics.lineTo(w.x, y + 12);
-      scene.weaponGraphics.lineTo(w.x - 9, y);
+      scene.weaponGraphics.moveTo(w.x, y - 16);
+      scene.weaponGraphics.lineTo(w.x + 12, y);
+      scene.weaponGraphics.lineTo(w.x, y + 16);
+      scene.weaponGraphics.lineTo(w.x - 12, y);
       scene.weaponGraphics.closePath();
       scene.weaponGraphics.fillPath();
       scene.weaponGraphics.strokePath();
 
-      // ombre au sol
-      scene.weaponGraphics.fillStyle(0x000000, 0.3);
-      scene.weaponGraphics.fillEllipse(w.x, w.y + 14, 16, 5);
+      // reflet central
+      scene.weaponGraphics.fillStyle(0xffffff, 0.9);
+      scene.weaponGraphics.fillCircle(w.x, y, 3);
     });
+
+    // étiquettes texte (mises à jour séparément pour éviter de recréer des objets chaque frame)
+    syncWeaponLabels();
   }
 
-  const WEAPON_LABELS = { fists: "Poings", sword: "Épée", bow: "Arc", mace: "Masse" };
+  const weaponLabelTexts = {}; // id -> Phaser.Text
+
+  function syncWeaponLabels() {
+    const seen = new Set();
+    latestState.weapons.forEach((w) => {
+      seen.add(w.id);
+      if (!weaponLabelTexts[w.id]) {
+        weaponLabelTexts[w.id] = scene.add.text(w.x, w.y - 30, WEAPON_LABELS[w.type] || w.type, {
+          fontFamily: "Rubik, sans-serif",
+          fontSize: "11px",
+          fontStyle: "600",
+          color: "#ffffff",
+          stroke: "#14161c",
+          strokeThickness: 3,
+        }).setOrigin(0.5).setDepth(4);
+      } else {
+        weaponLabelTexts[w.id].setPosition(w.x, w.y - 30);
+      }
+    });
+    Object.keys(weaponLabelTexts).forEach((id) => {
+      if (!seen.has(id)) {
+        weaponLabelTexts[id].destroy();
+        delete weaponLabelTexts[id];
+      }
+    });
+  }
 
   function updateHud() {
     const me = latestState.players.find((p) => p.id === myId);
