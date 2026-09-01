@@ -1,6 +1,8 @@
 (() => {
-  const ARENA_W = 1000;
-  const ARENA_H = 700;
+  const VIEWPORT_W = 1000;
+  const VIEWPORT_H = 700;
+  let worldW = VIEWPORT_W;
+  let worldH = VIEWPORT_H;
 
   const lobby = document.getElementById("lobby");
   const gameScreen = document.getElementById("gameScreen");
@@ -46,6 +48,10 @@
 
   socket.on("joined", (data) => {
     myId = data.id;
+    if (data.arena) {
+      worldW = data.arena.w;
+      worldH = data.arena.h;
+    }
     lobby.classList.add("hidden");
     gameScreen.classList.remove("hidden");
     startPhaser();
@@ -93,7 +99,7 @@
   const ATTACK_VARIANTS = ["attack", "attack_thrust", "attack_slash2"];
   const WEAPON_ATTACK_ANIM = {
     fists: "attack_thrust",
-    bow: "attack_thrust",
+    axe: "attack_thrust",
     sword: "attack",
     mace: "attack_slash2",
   };
@@ -112,15 +118,15 @@
     const config = {
       type: Phaser.AUTO,
       parent: "arena-container",
-      width: ARENA_W,
-      height: ARENA_H,
+      width: VIEWPORT_W,
+      height: VIEWPORT_H,
       backgroundColor: "#1a1d26",
       pixelArt: true,
       scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
-        width: ARENA_W,
-        height: ARENA_H,
+        width: VIEWPORT_W,
+        height: VIEWPORT_H,
       },
       scene: { preload, create, update },
     };
@@ -129,6 +135,9 @@
 
   function preload() {
     this.load.image("bg_arena", "static/assets/bg/arena.jpg");
+    this.load.image("wpn_sword", "static/assets/weapons/sword.png");
+    this.load.image("wpn_axe", "static/assets/weapons/axe.png");
+    this.load.image("wpn_mace", "static/assets/weapons/mace.png");
     SPRITE_KEYS.forEach((key) => {
       this.load.spritesheet(`${key}_idle`, `static/assets/${key}/idle.png`, { frameWidth: 64, frameHeight: 64 });
       this.load.spritesheet(`${key}_walk`, `static/assets/${key}/walk.png`, { frameWidth: 64, frameHeight: 64 });
@@ -141,7 +150,8 @@
   function create() {
     scene = this;
 
-    this.add.image(ARENA_W / 2, ARENA_H / 2, "bg_arena").setDisplaySize(ARENA_W, ARENA_H);
+    this.add.tileSprite(0, 0, worldW, worldH, "bg_arena").setOrigin(0, 0);
+    this.cameras.main.setBounds(0, 0, worldW, worldH);
 
     SPRITE_KEYS.forEach((key) => {
       DIRS.forEach((dir, i) => {
@@ -202,8 +212,7 @@
     const sprite = scene.add.sprite(0, 8, `${p.sprite}_idle`, 0).setOrigin(0.484, 0.703).setScale(1.2);
     if (p.tint) sprite.setTint(parseInt(p.tint, 16));
 
-    const weaponIcon = scene.add.rectangle(14, 6, 8, 8, 0x8b90a0).setOrigin(0.5).setAngle(45).setVisible(false);
-    weaponIcon.setStrokeStyle(1.5, 0xffffff, 0.9);
+    const weaponIcon = scene.add.image(14, 6, "wpn_sword").setOrigin(0.5, 0.8).setScale(1.3).setVisible(false);
 
     const nameText = scene.add.text(0, -46, p.name, {
       fontFamily: "Rubik, sans-serif",
@@ -218,6 +227,11 @@
 
     const entity = { container, sprite, weaponIcon, hpFill, nameText, currentAnim: "idle_down", dying: false };
     entities[p.id] = entity;
+
+    if (p.id === myId) {
+      scene.cameras.main.startFollow(container, true, 0.12, 0.12);
+    }
+
     return entity;
   }
 
@@ -239,9 +253,10 @@
 
       // Icône d'arme tenue en main
       if (p.weapon && p.weapon !== "fists" && p.alive) {
-        const wcolor = parseInt((WEAPON_COLORS[p.weapon] || "#ffffff").replace("#", "0x"));
-        entity.weaponIcon.setFillStyle(wcolor);
+        const texKey = `wpn_${p.weapon}`;
+        if (entity.weaponIcon.texture.key !== texKey) entity.weaponIcon.setTexture(texKey);
         entity.weaponIcon.setVisible(true);
+        entity.weaponIcon.setRotation(p.angle + Math.PI / 4);
         const hx = Math.cos(p.angle) * 16;
         const hy = Math.sin(p.angle) * 16 + 8;
         entity.weaponIcon.setPosition(hx, hy);
@@ -325,7 +340,7 @@
       scene.projGraphics.fillStyle(color, 1);
       scene.projGraphics.lineStyle(1.5, 0xffffff, 0.8);
 
-      if (pr.weapon === "bow") {
+      if (pr.weapon === "axe") {
         // flèche fine orientée dans le sens du tir
         const cos = Math.cos(angle), sin = Math.sin(angle);
         const tip = { x: pr.x + cos * 9, y: pr.y + sin * 9 };
@@ -389,8 +404,8 @@
     });
   }
 
-  const WEAPON_LABELS = { fists: "Poings", sword: "Épée", bow: "Arc", mace: "Masse" };
-  const WEAPON_COLORS = { sword: "#4FA8E8", bow: "#5DBE7C", mace: "#E8624F" };
+  const WEAPON_LABELS = { fists: "Poings", sword: "Épée", axe: "Hache", mace: "Masse" };
+  const WEAPON_COLORS = { sword: "#4FA8E8", axe: "#5DBE7C", mace: "#E8624F" };
 
   function drawWeapons() {
     if (!scene) return;
@@ -398,9 +413,7 @@
     const t = scene.time.now / 1000;
 
     latestState.weapons.forEach((w) => {
-      const bob = Math.sin(t * 3 + w.x) * 4;
       const color = parseInt((w.color || "#ffffff").replace("#", "0x"));
-      const y = w.y + bob;
 
       // ombre au sol (fixe, ne suit pas le flottement)
       scene.weaponGraphics.fillStyle(0x000000, 0.35);
@@ -409,29 +422,36 @@
       // halo lumineux pulsant
       const pulse = 24 + Math.sin(t * 4 + w.x) * 4;
       scene.weaponGraphics.fillStyle(color, 0.25);
-      scene.weaponGraphics.fillCircle(w.x, y, pulse);
+      scene.weaponGraphics.fillCircle(w.x, w.y, pulse);
       scene.weaponGraphics.fillStyle(0xffffff, 0.12);
-      scene.weaponGraphics.fillCircle(w.x, y, pulse * 0.55);
-
-      // losange représentant l'arme, plus grand et contour blanc épais
-      scene.weaponGraphics.fillStyle(color, 1);
-      scene.weaponGraphics.lineStyle(3, 0xffffff, 1);
-      scene.weaponGraphics.beginPath();
-      scene.weaponGraphics.moveTo(w.x, y - 16);
-      scene.weaponGraphics.lineTo(w.x + 12, y);
-      scene.weaponGraphics.lineTo(w.x, y + 16);
-      scene.weaponGraphics.lineTo(w.x - 12, y);
-      scene.weaponGraphics.closePath();
-      scene.weaponGraphics.fillPath();
-      scene.weaponGraphics.strokePath();
-
-      // reflet central
-      scene.weaponGraphics.fillStyle(0xffffff, 0.9);
-      scene.weaponGraphics.fillCircle(w.x, y, 3);
+      scene.weaponGraphics.fillCircle(w.x, w.y, pulse * 0.55);
     });
 
-    // étiquettes texte (mises à jour séparément pour éviter de recréer des objets chaque frame)
+    syncWeaponSprites();
     syncWeaponLabels();
+  }
+
+  const weaponIconSprites = {}; // id -> Phaser.Image
+
+  function syncWeaponSprites() {
+    const seen = new Set();
+    const t = scene.time.now / 1000;
+    latestState.weapons.forEach((w) => {
+      seen.add(w.id);
+      const bob = Math.sin(t * 3 + w.x) * 4;
+      if (!weaponIconSprites[w.id]) {
+        weaponIconSprites[w.id] = scene.add.image(w.x, w.y + bob, `wpn_${w.type}`)
+          .setScale(1.8).setDepth(1);
+      } else {
+        weaponIconSprites[w.id].setPosition(w.x, w.y + bob);
+      }
+    });
+    Object.keys(weaponIconSprites).forEach((id) => {
+      if (!seen.has(id)) {
+        weaponIconSprites[id].destroy();
+        delete weaponIconSprites[id];
+      }
+    });
   }
 
   const weaponLabelTexts = {}; // id -> Phaser.Text

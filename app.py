@@ -13,26 +13,31 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 # ---------------------------------------------------------------------------
 # Configuration de l'arène et des personnages
 # ---------------------------------------------------------------------------
-ARENA_W = 1000
-ARENA_H = 700
+# --- Taille du monde : la carte de base (1000x700) est répétée en tuiles ---
+TILE_W = 1000
+TILE_H = 700
+WORLD_TILES_X = 3
+WORLD_TILES_Y = 3
+ARENA_W = TILE_W * WORLD_TILES_X
+ARENA_H = TILE_H * WORLD_TILES_Y
 TICK_RATE = 1 / 30.0  # 30 mises à jour / seconde
 RESPAWN_DELAY = 3.0
 PLAYER_RADIUS = 18
 PROJECTILE_RADIUS = 5
 
 # --- Armes au sol ---
-MAX_WEAPONS_ON_GROUND = 5
-WEAPON_SPAWN_CHANCE_PER_TICK = 0.015
+MAX_WEAPONS_ON_GROUND = 16
+WEAPON_SPAWN_CHANCE_PER_TICK = 0.04
 WEAPON_PICKUP_RADIUS = 26
 
 WEAPON_TYPES = {
     "fists": {"label": "Poings", "color": "#8b90a0", "damage": 4, "fireRate": 0.45, "projSpeed": 420, "range": 180},
     "sword": {"label": "Épée", "color": "#4FA8E8", "damage": 8, "fireRate": 0.30, "projSpeed": 560, "range": 300},
-    "bow": {"label": "Arc", "color": "#5DBE7C", "damage": 6, "fireRate": 0.20, "projSpeed": 700, "range": 480},
+    "axe": {"label": "Hache", "color": "#5DBE7C", "damage": 6, "fireRate": 0.20, "projSpeed": 700, "range": 480},
     "mace": {"label": "Masse", "color": "#E8624F", "damage": 14, "fireRate": 0.65, "projSpeed": 380, "range": 220},
 }
-MAX_MONSTERS = 6
-MONSTER_SPAWN_CHANCE_PER_TICK = 0.02  # ~1 toutes les 1.6s si sous le max
+MAX_MONSTERS = 18
+MONSTER_SPAWN_CHANCE_PER_TICK = 0.05
 SLIME_RADIUS = 16
 SLIME_HEALTH = 30
 SLIME_LIFESPAN = 60.0   # secondes avant disparition si pas tué
@@ -41,9 +46,9 @@ SLIME_SPEED = 55
 SLIME_CONTACT_DAMAGE = 3
 SLIME_CONTACT_COOLDOWN = 1.2  # secondes entre deux morsures sur le même joueur
 
-# Obstacles solides (arbres, rochers, palissades) repérés sur le fond de carte.
-# Chaque entrée : (x, y, rayon) dans l'espace 1000x700 de l'arène.
-OBSTACLES = [
+# Obstacles solides (arbres, rochers, palissades) repérés sur une tuile de fond
+# (espace 1000x700), puis répétés sur toute la grille du monde.
+_BASE_OBSTACLES = [
     (90, 80, 95),    # grande canopée haut-gauche
     (520, 380, 62),  # arbre isolé avec tronc visible
     (870, 560, 82),  # bosquet bas-droite
@@ -52,6 +57,13 @@ OBSTACLES = [
     (430, 190, 34), (480, 220, 34), (510, 250, 30),  # palissade tressée (haut)
     (300, 300, 34), (220, 330, 34), (150, 360, 34),
     (90, 390, 34), (60, 430, 30),                    # palissade tressée (bas)
+]
+
+OBSTACLES = [
+    (bx + tx * TILE_W, by + ty * TILE_H, br)
+    for ty in range(WORLD_TILES_Y)
+    for tx in range(WORLD_TILES_X)
+    for (bx, by, br) in _BASE_OBSTACLES
 ]
 
 
@@ -107,9 +119,10 @@ CHARACTERS = {
 }
 
 SPAWN_POINTS = [
-    (60, 60), (ARENA_W - 60, 60),
-    (60, ARENA_H - 60), (ARENA_W - 60, ARENA_H - 60),
-    (ARENA_W // 2, 60), (ARENA_W // 2, ARENA_H - 60),
+    (bx + tx * TILE_W, by + ty * TILE_H)
+    for ty in range(WORLD_TILES_Y)
+    for tx in range(WORLD_TILES_X)
+    for (bx, by) in [(70, 70), (TILE_W - 70, 70), (70, TILE_H - 70), (TILE_W - 70, TILE_H - 70)]
 ]
 
 players = {}       # sid -> player dict
