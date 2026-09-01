@@ -3,6 +3,7 @@
   const VIEWPORT_H = 700;
   let worldW = VIEWPORT_W;
   let worldH = VIEWPORT_H;
+  let worldObstacles = [];
 
   const lobby = document.getElementById("lobby");
   const gameScreen = document.getElementById("gameScreen");
@@ -52,6 +53,7 @@
       worldW = data.arena.w;
       worldH = data.arena.h;
     }
+    if (data.obstacles) worldObstacles = data.obstacles;
     lobby.classList.add("hidden");
     gameScreen.classList.remove("hidden");
     startPhaser();
@@ -134,7 +136,10 @@
   }
 
   function preload() {
-    this.load.image("bg_arena", "static/assets/bg/arena.jpg");
+    this.load.image("grass_tile", "static/assets/bg/grass_tile.png");
+    this.load.image("deco_tree", "static/assets/bg/tree_big.png");
+    this.load.image("deco_rock", "static/assets/bg/rock.png");
+    this.load.image("deco_stump", "static/assets/bg/stump.png");
     this.load.image("wpn_sword", "static/assets/weapons/sword.png");
     this.load.image("wpn_axe", "static/assets/weapons/axe.png");
     this.load.image("wpn_mace", "static/assets/weapons/mace.png");
@@ -150,8 +155,18 @@
   function create() {
     scene = this;
 
-    this.add.tileSprite(0, 0, worldW, worldH, "bg_arena").setOrigin(0, 0);
+    this.add.tileSprite(0, 0, worldW, worldH, "grass_tile").setOrigin(0, 0).setDepth(-10);
     this.cameras.main.setBounds(0, 0, worldW, worldH);
+
+    worldObstacles.forEach((o) => {
+      if (o.kind === "tree") {
+        this.add.image(o.x, o.y + 14, "deco_tree").setOrigin(0.5, 0.92).setScale(0.5).setDepth(o.y);
+      } else if (o.kind === "rock") {
+        this.add.image(o.x, o.y, "deco_rock").setOrigin(0.5, 0.75).setScale(0.55).setDepth(-5);
+      } else if (o.kind === "stump") {
+        this.add.image(o.x, o.y, "deco_stump").setOrigin(0.5, 0.8).setScale(0.55).setDepth(-5);
+      }
+    });
 
     SPRITE_KEYS.forEach((key) => {
       DIRS.forEach((dir, i) => {
@@ -182,9 +197,9 @@
       });
     });
 
-    this.projGraphics = this.add.graphics().setDepth(5);
-    this.monsterGraphics = this.add.graphics().setDepth(3);
-    this.weaponGraphics = this.add.graphics().setDepth(1);
+    this.projGraphics = this.add.graphics().setDepth(1000);
+    this.monsterGraphics = this.add.graphics().setDepth(999);
+    this.weaponGraphics = this.add.graphics().setDepth(998);
 
     this.input.on("pointermove", (pointer) => {
       const me = entities[myId];
@@ -249,6 +264,7 @@
       seenIds.add(p.id);
       const entity = ensureEntity(p);
       entity.container.setPosition(p.x, p.y);
+      entity.container.setDepth(p.y);
       const dir = angleToDir(p.angle);
 
       // Icône d'arme tenue en main
@@ -441,7 +457,7 @@
       const bob = Math.sin(t * 3 + w.x) * 4;
       if (!weaponIconSprites[w.id]) {
         weaponIconSprites[w.id] = scene.add.image(w.x, w.y + bob, `wpn_${w.type}`)
-          .setScale(1.8).setDepth(1);
+          .setScale(1.8).setDepth(998);
       } else {
         weaponIconSprites[w.id].setPosition(w.x, w.y + bob);
       }
@@ -468,7 +484,7 @@
           color: "#ffffff",
           stroke: "#14161c",
           strokeThickness: 3,
-        }).setOrigin(0.5).setDepth(4);
+        }).setOrigin(0.5).setDepth(998);
       } else {
         weaponLabelTexts[w.id].setPosition(w.x, w.y - 30);
       }

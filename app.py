@@ -13,13 +13,9 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 # ---------------------------------------------------------------------------
 # Configuration de l'arène et des personnages
 # ---------------------------------------------------------------------------
-# --- Taille du monde : la carte de base (1000x700) est répétée en tuiles ---
-TILE_W = 1000
-TILE_H = 700
-WORLD_TILES_X = 3
-WORLD_TILES_Y = 3
-ARENA_W = TILE_W * WORLD_TILES_X
-ARENA_H = TILE_H * WORLD_TILES_Y
+# --- Taille du monde ---
+ARENA_W = 2000
+ARENA_H = 1400
 TICK_RATE = 1 / 30.0  # 30 mises à jour / seconde
 RESPAWN_DELAY = 3.0
 PLAYER_RADIUS = 18
@@ -27,7 +23,7 @@ PROJECTILE_RADIUS = 5
 
 # --- Armes au sol ---
 MAX_WEAPONS_ON_GROUND = 16
-WEAPON_SPAWN_CHANCE_PER_TICK = 0.04
+WEAPON_SPAWN_CHANCE_PER_TICK = 0.09
 WEAPON_PICKUP_RADIUS = 26
 
 WEAPON_TYPES = {
@@ -36,8 +32,8 @@ WEAPON_TYPES = {
     "axe": {"label": "Hache", "color": "#5DBE7C", "damage": 6, "fireRate": 0.20, "projSpeed": 700, "range": 480},
     "mace": {"label": "Masse", "color": "#E8624F", "damage": 14, "fireRate": 0.65, "projSpeed": 380, "range": 220},
 }
-MAX_MONSTERS = 18
-MONSTER_SPAWN_CHANCE_PER_TICK = 0.05
+MAX_MONSTERS = 10
+MONSTER_SPAWN_CHANCE_PER_TICK = 0.06
 SLIME_RADIUS = 16
 SLIME_HEALTH = 30
 SLIME_LIFESPAN = 60.0   # secondes avant disparition si pas tué
@@ -46,37 +42,63 @@ SLIME_SPEED = 55
 SLIME_CONTACT_DAMAGE = 3
 SLIME_CONTACT_COOLDOWN = 1.2  # secondes entre deux morsures sur le même joueur
 
-# Obstacles solides (arbres, rochers, palissades) repérés sur une tuile de fond
-# (espace 1000x700), puis répétés sur toute la grille du monde.
-_BASE_OBSTACLES = [
-    (90, 80, 95),    # grande canopée haut-gauche
-    (520, 380, 62),  # arbre isolé avec tronc visible
-    (870, 560, 82),  # bosquet bas-droite
-    (955, 610, 65),  # second arbre bas-droite
-    (160, 160, 34), (230, 140, 34), (300, 150, 34), (370, 170, 34),
-    (430, 190, 34), (480, 220, 34), (510, 250, 30),  # palissade tressée (haut)
-    (300, 300, 34), (220, 330, 34), (150, 360, 34),
-    (90, 390, 34), (60, 430, 30),                    # palissade tressée (bas)
+# --- Décor / obstacles : arbres, rochers, souches dispersés sur la carte.
+# Générés une fois avec une graine fixe pour un placement stable entre redémarrages.
+# Chaque obstacle : (x, y, rayon_collision, type) — le type sert au rendu client.
+_OBSTACLE_SPECS = [
+    ("tree", 46, 46),   # (kind, radius, count)
+    ("rock", 22, 30),
+    ("stump", 24, 26),
 ]
 
-OBSTACLES = [
-    (bx + tx * TILE_W, by + ty * TILE_H, br)
-    for ty in range(WORLD_TILES_Y)
-    for tx in range(WORLD_TILES_X)
-    for (bx, by, br) in _BASE_OBSTACLES
-]
+def _generate_obstacles():
+    rng = random.Random(1337)
+    placed = []
+    margin = 80
+    for kind, radius, count in _OBSTACLE_SPECS:
+        attempts = 0
+        added = 0
+        while added < count and attempts < count * 40:
+            attempts += 1
+            x = rng.uniform(margin, ARENA_W - margin)
+            y = rng.uniform(margin, ARENA_H - margin)
+            ok = True
+            for ox, oy, orad, okind in placed:
+                min_gap = radius + orad + 30
+                if math.hypot(x - ox, y - oy) < min_gap:
+                    ok = False
+                    break
+            if ok:
+                placed.append((x, y, radius, kind))
+                added += 1
+    return placed
+
+
+OBSTACLES = _generate_obstacles()
+
+# Index spatial (grille de cellules) pour accélérer les tests de collision :
+# évite de comparer chaque joueur à TOUS les obstacles à chaque tick.
+_OBSTACLE_CELL = 200
+_obstacle_grid = {}
+for _ox, _oy, _orad, _okind in OBSTACLES:
+    _key = (int(_ox // _OBSTACLE_CELL), int(_oy // _OBSTACLE_CELL))
+    _obstacle_grid.setdefault(_key, []).append((_ox, _oy, _orad))
 
 
 def resolve_obstacles(x, y, radius):
     """Empêche x,y de pénétrer un obstacle ; renvoie la position corrigée."""
-    for ox, oy, orad in OBSTACLES:
-        dx, dy = x - ox, y - oy
-        dist = math.hypot(dx, dy)
-        min_dist = orad + radius
-        if dist < min_dist and dist > 0.001:
-            push = (min_dist - dist)
-            x += (dx / dist) * push
-            y += (dy / dist) * push
+    cx, cy = int(x // _OBSTACLE_CELL), int(y // _OBSTACLE_CELL)
+    for gx in (cx - 1, cx, cx + 1):
+        for gy in (cy - 1, cy, cy + 1):
+            for ox, oy, orad in _obstacle_grid.get((gx, gy), ()):
+                dx, dy = x - ox, y - oy
+                min_dist = orad + radius
+                dist_sq = dx * dx + dy * dy
+                if dist_sq < min_dist * min_dist and dist_sq > 0.0001:
+                    dist = math.sqrt(dist_sq)
+                    push = (min_dist - dist)
+                    x += (dx / dist) * push
+                    y += (dy / dist) * push
     return x, y
 
 CHARACTERS = {
@@ -119,10 +141,9 @@ CHARACTERS = {
 }
 
 SPAWN_POINTS = [
-    (bx + tx * TILE_W, by + ty * TILE_H)
-    for ty in range(WORLD_TILES_Y)
-    for tx in range(WORLD_TILES_X)
-    for (bx, by) in [(70, 70), (TILE_W - 70, 70), (70, TILE_H - 70), (TILE_W - 70, TILE_H - 70)]
+    (x, y)
+    for x in range(100, ARENA_W - 100 + 1, (ARENA_W - 200) // 4)
+    for y in range(100, ARENA_H - 100 + 1, (ARENA_H - 200) // 3)
 ]
 
 players = {}       # sid -> player dict
@@ -171,7 +192,7 @@ def kill_player(p, now):
 
 
 def in_obstacle(x, y, margin=0):
-    for ox, oy, orad in OBSTACLES:
+    for ox, oy, orad, okind in OBSTACLES:
         if math.hypot(x - ox, y - oy) < orad + margin:
             return True
     return False
@@ -291,7 +312,11 @@ def on_join(data):
         "kills": 0,
         "deaths": 0,
     }
-    socketio.emit("joined", {"id": sid, "arena": {"w": ARENA_W, "h": ARENA_H}}, to=sid)
+    socketio.emit("joined", {
+        "id": sid,
+        "arena": {"w": ARENA_W, "h": ARENA_H},
+        "obstacles": [{"x": ox, "y": oy, "r": orad, "kind": okind} for ox, oy, orad, okind in OBSTACLES],
+    }, to=sid)
 
 
 @socketio.on("input")
