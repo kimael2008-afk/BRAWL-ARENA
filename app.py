@@ -20,6 +20,14 @@ RESPAWN_DELAY = 3.0
 PLAYER_RADIUS = 18
 PROJECTILE_RADIUS = 5
 
+# --- Monstres (slimes) ---
+MAX_MONSTERS = 6
+MONSTER_SPAWN_CHANCE_PER_TICK = 0.02  # ~1 toutes les 1.6s si sous le max
+SLIME_RADIUS = 16
+SLIME_HEALTH = 30
+SLIME_LIFESPAN = 25.0   # secondes avant disparition si pas tué
+SLIME_KILL_REWARD = 1   # ajouté au compteur de kills du tueur
+
 CHARACTERS = {
     "forestier": {
         "label": "Forestier",
@@ -67,10 +75,37 @@ SPAWN_POINTS = [
 
 players = {}       # sid -> player dict
 projectiles = {}   # id -> projectile dict
+monsters = {}       # id -> monster dict
 
 
 def random_spawn():
     return random.choice(SPAWN_POINTS)
+
+
+def spawn_slime():
+    mid = str(uuid.uuid4())
+    x = random.uniform(SLIME_RADIUS + 20, ARENA_W - SLIME_RADIUS - 20)
+    y = random.uniform(SLIME_RADIUS + 20, ARENA_H - SLIME_RADIUS - 20)
+    monsters[mid] = {
+        "id": mid,
+        "type": "slime",
+        "x": x,
+        "y": y,
+        "health": SLIME_HEALTH,
+        "maxHealth": SLIME_HEALTH,
+        "spawnAt": time.time(),
+    }
+
+
+def public_monster(m):
+    return {
+        "id": m["id"],
+        "type": m["type"],
+        "x": m["x"],
+        "y": m["y"],
+        "health": m["health"],
+        "maxHealth": m["maxHealth"],
+    }
 
 
 def public_player(p):
@@ -197,6 +232,13 @@ def game_loop():
         dt = now - last
         last = now
 
+        # Cycle de vie des slimes : expiration puis apparition aléatoire
+        for mid, m in list(monsters.items()):
+            if now - m["spawnAt"] > SLIME_LIFESPAN:
+                del monsters[mid]
+        if len(monsters) < MAX_MONSTERS and random.random() < MONSTER_SPAWN_CHANCE_PER_TICK:
+            spawn_slime()
+
         # Mouvement + tir des joueurs
         for sid, p in list(players.items()):
             if not p["alive"]:
@@ -237,6 +279,25 @@ def game_loop():
                     hit_sid = sid
                     break
 
+            hit_mid = None
+            if not hit_sid:
+                for mid, m in monsters.items():
+                    dist = math.hypot(m["x"] - proj["x"], m["y"] - proj["y"])
+                    if dist <= SLIME_RADIUS + PROJECTILE_RADIUS:
+                        hit_mid = mid
+                        break
+
+            if hit_mid:
+                m = monsters[hit_mid]
+                m["health"] -= proj["damage"]
+                if m["health"] <= 0:
+                    del monsters[hit_mid]
+                    shooter = players.get(proj["owner"])
+                    if shooter:
+                        shooter["kills"] += SLIME_KILL_REWARD
+                del projectiles[pid]
+                continue
+
             if hit_sid:
                 target = players[hit_sid]
                 target["health"] -= proj["damage"]
@@ -258,6 +319,7 @@ def game_loop():
                 {"id": pr["id"], "x": pr["x"], "y": pr["y"], "color": pr["color"]}
                 for pr in projectiles.values()
             ],
+            "monsters": [public_monster(m) for m in monsters.values()],
         })
 
 

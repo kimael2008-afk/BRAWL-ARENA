@@ -13,7 +13,7 @@
 
   let selectedType = null;
   let myId = null;
-  let latestState = { players: [], projectiles: [] };
+  let latestState = { players: [], projectiles: [], monsters: [] };
 
   // ---------------- Lobby : choix du personnage ----------------
   document.querySelectorAll(".char-card").forEach((card) => {
@@ -161,6 +161,7 @@
     });
 
     this.projGraphics = this.add.graphics().setDepth(5);
+    this.monsterGraphics = this.add.graphics().setDepth(3);
 
     this.input.on("pointermove", (pointer) => {
       const me = entities[myId];
@@ -184,8 +185,8 @@
     if (entities[p.id]) return entities[p.id];
 
     const container = scene.add.container(p.x, p.y).setDepth(2);
-    const shadow = scene.add.ellipse(0, 22, 26, 10, 0x000000, 0.35);
-    const sprite = scene.add.sprite(0, 0, `${p.sprite}_idle`, 0).setOrigin(0.5, 0.75).setScale(1.15);
+    const shadow = scene.add.ellipse(0, 20, 24, 9, 0x000000, 0.45);
+    const sprite = scene.add.sprite(0, 0, `${p.sprite}_idle`, 0).setOrigin(0.5, 0.8).setScale(1.0);
     if (p.tint) sprite.setTint(parseInt(p.tint, 16));
 
     const nameText = scene.add.text(0, -54, p.name, {
@@ -296,6 +297,40 @@
     });
   }
 
+  function drawMonsters() {
+    if (!scene) return;
+    scene.monsterGraphics.clear();
+    const t = scene.time.now / 1000;
+
+    latestState.monsters.forEach((m) => {
+      const jiggle = 1 + Math.sin(t * 6 + m.x) * 0.08;
+      const w = 22 * jiggle;
+      const h = 16 / jiggle;
+
+      // corps gélatineux
+      scene.monsterGraphics.fillStyle(0x5dbe7c, 0.9);
+      scene.monsterGraphics.fillEllipse(m.x, m.y, w, h);
+      scene.monsterGraphics.lineStyle(2, 0x2f7a45, 1);
+      scene.monsterGraphics.strokeEllipse(m.x, m.y, w, h);
+
+      // reflet
+      scene.monsterGraphics.fillStyle(0xaef0c0, 0.6);
+      scene.monsterGraphics.fillEllipse(m.x - w * 0.2, m.y - h * 0.25, w * 0.35, h * 0.3);
+
+      // yeux
+      scene.monsterGraphics.fillStyle(0x1a1d26, 1);
+      scene.monsterGraphics.fillCircle(m.x - 5, m.y - 2, 1.6);
+      scene.monsterGraphics.fillCircle(m.x + 5, m.y - 2, 1.6);
+
+      // barre de vie
+      const ratio = Math.max(0, m.health / m.maxHealth);
+      scene.monsterGraphics.fillStyle(0x2a2e3b, 1);
+      scene.monsterGraphics.fillRect(m.x - 16, m.y - h - 10, 32, 4);
+      scene.monsterGraphics.fillStyle(0x5dbe7c, 1);
+      scene.monsterGraphics.fillRect(m.x - 16, m.y - h - 10, 32 * ratio, 4);
+    });
+  }
+
   function updateHud() {
     const me = latestState.players.find((p) => p.id === myId);
     if (me) {
@@ -317,6 +352,7 @@
   function update() {
     if (!scene) return;
     syncEntities();
+    drawMonsters();
     drawProjectiles();
     updateHud();
   }
