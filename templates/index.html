@@ -36,10 +36,18 @@
     <div id="arena-container"></div>
     <div id="hud">
       <div id="healthBar"><div id="healthFill"></div></div>
-      <div id="weaponLabel">Poings</div>
+      <div id="weaponLabel">Poings · Nv.1</div>
+      <div id="weaponXpBar"><div id="weaponXpFill"></div></div>
       <div id="scoreboard"></div>
     </div>
     <div id="deathBanner" class="hidden">Éliminé — réapparition…</div>
+
+    <div id="levelupOverlay" class="hidden">
+      <div id="levelupPanel">
+        <h3 id="levelupTitle">Niveau supérieur — choisis un bonus</h3>
+        <div id="levelupOptions"></div>
+      </div>
+    </div>
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>

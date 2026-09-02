@@ -12,6 +12,10 @@
   const connStatus = document.getElementById("connStatus");
   const healthFill = document.getElementById("healthFill");
   const weaponLabelEl = document.getElementById("weaponLabel");
+  const weaponXpFillEl = document.getElementById("weaponXpFill");
+  const levelupOverlay = document.getElementById("levelupOverlay");
+  const levelupTitle = document.getElementById("levelupTitle");
+  const levelupOptions = document.getElementById("levelupOptions");
   const scoreboardEl = document.getElementById("scoreboard");
   const deathBanner = document.getElementById("deathBanner");
 
@@ -62,6 +66,27 @@
   socket.on("state", (data) => {
     latestState = data;
   });
+
+  socket.on("levelup", (data) => {
+    showLevelupChoice(data);
+  });
+
+  function showLevelupChoice(data) {
+    if (!levelupOverlay) return;
+    levelupTitle.textContent = `Niveau ${data.level} — choisis un bonus`;
+    levelupOptions.innerHTML = "";
+    data.options.forEach((opt, i) => {
+      const btn = document.createElement("button");
+      btn.className = "levelup-option";
+      btn.innerHTML = `<span class="lvl-label">${opt.label}</span><span class="lvl-desc">${opt.desc}</span>`;
+      btn.addEventListener("click", () => {
+        socket.emit("choose_bonus", { index: i });
+        levelupOverlay.classList.add("hidden");
+      });
+      levelupOptions.appendChild(btn);
+    });
+    levelupOverlay.classList.remove("hidden");
+  }
 
   playBtn.addEventListener("click", () => {
     socket.emit("join", { name: nameInput.value.trim(), type: selectedType });
@@ -509,7 +534,12 @@
     if (me) {
       healthFill.style.width = Math.max(0, (me.health / me.maxHealth) * 100) + "%";
       deathBanner.classList.toggle("hidden", me.alive);
-      if (weaponLabelEl) weaponLabelEl.textContent = WEAPON_LABELS[me.weapon] || me.weapon;
+      if (weaponLabelEl) {
+        weaponLabelEl.textContent = `${WEAPON_LABELS[me.weapon] || me.weapon} · Nv.${me.weaponLevel}`;
+      }
+      if (weaponXpFillEl && me.weaponXPNext) {
+        weaponXpFillEl.style.width = Math.min(100, (me.weaponXP / me.weaponXPNext) * 100) + "%";
+      }
     }
     const sorted = [...latestState.players].sort((a, b) => b.kills - a.kills).slice(0, 6);
     scoreboardEl.innerHTML = sorted

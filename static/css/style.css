@@ -180,9 +180,80 @@ html, body {
   color: var(--ink);
   background: rgba(29, 32, 41, 0.85);
   border: 1px solid #2a2e3b;
-  border-radius: 8px;
+  border-radius: 8px 8px 0 0;
   padding: 3px 10px;
   display: inline-block;
+}
+
+#weaponXpBar {
+  width: 140px;
+  height: 6px;
+  background: #2a2e3b;
+  border: 1px solid #2a2e3b;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  overflow: hidden;
+}
+#weaponXpFill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #E8624F, #f0a35d);
+  transition: width 0.2s ease;
+}
+
+#levelupOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 11, 15, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+#levelupPanel {
+  background: var(--panel);
+  border: 1px solid #333747;
+  border-radius: 14px;
+  padding: 22px 26px;
+  max-width: 90vw;
+  text-align: center;
+}
+#levelupPanel h3 {
+  margin: 0 0 16px;
+  font-size: 1rem;
+  color: var(--ink);
+}
+#levelupOptions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.levelup-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 150px;
+  padding: 14px 10px;
+  border-radius: 10px;
+  border: 2px solid #333747;
+  background: #20232e;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+.levelup-option:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.levelup-option .lvl-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #f0a35d;
+}
+.levelup-option .lvl-desc {
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
 #scoreboard {

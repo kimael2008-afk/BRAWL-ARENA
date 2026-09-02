@@ -32,6 +32,21 @@ WEAPON_TYPES = {
     "axe": {"label": "Hache", "color": "#5DBE7C", "damage": 6, "fireRate": 0.20, "projSpeed": 700, "range": 480},
     "mace": {"label": "Masse", "color": "#E8624F", "damage": 14, "fireRate": 0.65, "projSpeed": 380, "range": 220},
 }
+
+# --- Progression de l'arme équipée (façon MO.CO) ---
+WEAPON_XP_PER_MONSTER_KILL = 8
+WEAPON_XP_PER_PLAYER_KILL = 30
+WEAPON_XP_BASE = 30           # XP nécessaire pour passer du niveau 1 au niveau 2
+WEAPON_XP_GROWTH = 1.35       # multiplicateur de coût par niveau
+LEVELUP_CHOICE_TIMEOUT = 8.0  # secondes avant sélection automatique
+
+BONUS_POOL = [
+    {"id": "damage_up", "label": "Dégâts +15%", "desc": "Chaque coup frappe plus fort.", "dmgMult": 1.15},
+    {"id": "firerate_up", "label": "Cadence +15%", "desc": "Tire plus vite.", "frMult": 1.0 / 1.15},
+    {"id": "range_up", "label": "Portée +20%", "desc": "Les tirs vont plus loin.", "rangeMult": 1.20},
+    {"id": "speed_up", "label": "Vitesse +10%", "desc": "Déplacement plus rapide.", "speedMult": 1.10},
+    {"id": "health_up", "label": "PV max +15", "desc": "Encaisse plus de coups.", "hpBonus": 15},
+]
 MAX_MONSTERS = 10
 MONSTER_SPAWN_CHANCE_PER_TICK = 0.06
 SLIME_RADIUS = 16
@@ -171,13 +186,70 @@ def public_weapon(w):
     return {"id": w["id"], "type": w["type"], "color": WEAPON_TYPES[w["type"]]["color"]}
 
 
+def apply_weapon_stats(p):
+    """Recalcule les stats effectives à partir de l'arme équipée + bonus accumulés."""
+    base = WEAPON_TYPES[p["weapon"]]
+    b = p["weaponBonuses"]
+    p["damage"] = base["damage"] * b["dmgMult"]
+    p["fireRate"] = base["fireRate"] * b["frMult"]
+    p["projSpeed"] = base["projSpeed"]
+    p["range"] = base["range"] * b["rangeMult"]
+    p["speed"] = p["baseSpeed"] * b["speedMult"]
+    newMax = p["baseMaxHealth"] + b["hpBonus"]
+    if newMax != p["maxHealth"]:
+        p["health"] = p["health"] + (newMax - p["maxHealth"])
+        p["maxHealth"] = newMax
+
+
 def equip_weapon(p, wtype):
-    stats = WEAPON_TYPES[wtype]
     p["weapon"] = wtype
-    p["damage"] = stats["damage"]
-    p["fireRate"] = stats["fireRate"]
-    p["projSpeed"] = stats["projSpeed"]
-    p["range"] = stats["range"]
+    p["weaponLevel"] = 1
+    p["weaponXP"] = 0
+    p["weaponXPNext"] = WEAPON_XP_BASE
+    p["weaponBonuses"] = {"dmgMult": 1.0, "frMult": 1.0, "rangeMult": 1.0, "speedMult": 1.0, "hpBonus": 0}
+    p["pendingChoice"] = None
+    p["pendingChoiceAt"] = None
+    apply_weapon_stats(p)
+
+
+def award_weapon_xp(p, amount, now):
+    if p["pendingChoice"] is not None:
+        return  # en attente d'un choix : pas de nouvelle XP tant que non résolu
+    p["weaponXP"] += amount
+    if p["weaponXP"] >= p["weaponXPNext"]:
+        options = random.sample(BONUS_POOL, 2)
+        p["pendingChoice"] = options
+        p["pendingChoiceAt"] = now
+        socketio.emit("levelup", {
+            "level": p["weaponLevel"] + 1,
+            "options": [{"id": o["id"], "label": o["label"], "desc": o["desc"]} for o in options],
+        }, to=p["id"])
+
+
+def resolve_levelup(p, choice_index):
+    options = p["pendingChoice"]
+    if not options:
+        return
+    choice_index = max(0, min(len(options) - 1, choice_index))
+    bonus = options[choice_index]
+    b = p["weaponBonuses"]
+    if "dmgMult" in bonus:
+        b["dmgMult"] *= bonus["dmgMult"]
+    if "frMult" in bonus:
+        b["frMult"] *= bonus["frMult"]
+    if "rangeMult" in bonus:
+        b["rangeMult"] *= bonus["rangeMult"]
+    if "speedMult" in bonus:
+        b["speedMult"] *= bonus["speedMult"]
+    if "hpBonus" in bonus:
+        b["hpBonus"] += bonus["hpBonus"]
+
+    p["weaponLevel"] += 1
+    p["weaponXP"] = 0
+    p["weaponXPNext"] = round(WEAPON_XP_BASE * (WEAPON_XP_GROWTH ** (p["weaponLevel"] - 1)))
+    p["pendingChoice"] = None
+    p["pendingChoiceAt"] = None
+    apply_weapon_stats(p)
 
 
 def kill_player(p, now):
@@ -188,7 +260,7 @@ def kill_player(p, now):
     if p["weapon"] != "fists":
         wid = str(uuid.uuid4())
         weapons[wid] = {"id": wid, "type": p["weapon"], "x": p["x"], "y": p["y"]}
-        equip_weapon(p, "fists")
+    equip_weapon(p, "fists")
 
 
 def in_obstacle(x, y, margin=0):
@@ -253,6 +325,9 @@ def public_player(p):
         "kills": p["kills"],
         "deaths": p["deaths"],
         "weapon": p["weapon"],
+        "weaponLevel": p["weaponLevel"],
+        "weaponXP": p["weaponXP"],
+        "weaponXPNext": p["weaponXPNext"],
     }
 
 
@@ -280,7 +355,6 @@ def on_join(data):
     sid = request.sid
     char_type = data.get("type") if data.get("type") in CHARACTERS else "forestier"
     char = CHARACTERS[char_type]
-    fists = WEAPON_TYPES["fists"]
     x, y = random_spawn()
 
     players[sid] = {
@@ -296,12 +370,9 @@ def on_join(data):
         "facingAngle": math.pi / 2,  # direction du sprite (marche), distincte de la visée
         "dx": 0,
         "dy": 0,
+        "baseSpeed": char["speed"],
         "speed": char["speed"],
-        "weapon": "fists",
-        "damage": fists["damage"],
-        "fireRate": fists["fireRate"],
-        "projSpeed": fists["projSpeed"],
-        "range": fists["range"],
+        "baseMaxHealth": char["maxHealth"],
         "maxHealth": char["maxHealth"],
         "health": char["maxHealth"],
         "alive": True,
@@ -313,11 +384,22 @@ def on_join(data):
         "kills": 0,
         "deaths": 0,
     }
+    equip_weapon(players[sid], "fists")
     socketio.emit("joined", {
         "id": sid,
         "arena": {"w": ARENA_W, "h": ARENA_H},
         "obstacles": [{"x": ox, "y": oy, "r": orad, "kind": okind} for ox, oy, orad, okind in OBSTACLES],
     }, to=sid)
+
+
+@socketio.on("choose_bonus")
+def on_choose_bonus(data):
+    from flask import request
+    sid = request.sid
+    p = players.get(sid)
+    if not p or p["pendingChoice"] is None:
+        return
+    resolve_levelup(p, int(data.get("index", 0)))
 
 
 @socketio.on("input")
@@ -411,6 +493,8 @@ def game_loop():
 
         # Mouvement + tir des joueurs
         for sid, p in list(players.items()):
+            if p["pendingChoice"] is not None and now - p["pendingChoiceAt"] > LEVELUP_CHOICE_TIMEOUT:
+                resolve_levelup(p, 0)
             if not p["alive"]:
                 if p["respawnAt"] and now >= p["respawnAt"]:
                     x, y = random_spawn()
@@ -491,6 +575,7 @@ def game_loop():
                     shooter = players.get(proj["owner"])
                     if shooter:
                         shooter["kills"] += SLIME_KILL_REWARD
+                        award_weapon_xp(shooter, WEAPON_XP_PER_MONSTER_KILL, now)
                 del projectiles[pid]
                 continue
 
@@ -503,6 +588,7 @@ def game_loop():
                     shooter = players.get(proj["owner"])
                     if shooter:
                         shooter["kills"] += 1
+                        award_weapon_xp(shooter, WEAPON_XP_PER_PLAYER_KILL, now)
                 del projectiles[pid]
 
         # Diffusion de l'état à tous les clients

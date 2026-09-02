@@ -71,10 +71,17 @@ développement des mécaniques correspondantes :
   Shaper) — corps + tenue + cheveux, 4 directions, idle/marche/attaque
 - Décor : fond de carte forestier (pack "Gentle Forest")
 - Ce qui existe déjà et qu'il faudra faire évoluer vers ce design :
-  - Système de "personnages" avec stats fixes → **à remplacer** par le
-    système d'armes avec XP/niveau indépendant
-  - Combat par projectiles simple → à conserver comme base, à enrichir avec
-    les capacités actives débloquées par les armes
+  - **Système de progression d'arme (XP/niveau, choix de bonus) — IMPLÉMENTÉ** (v1) :
+    l'arme équipée gagne de l'XP en tuant (slimes/joueurs), monte de niveau, et
+    propose un choix entre 2 bonus passifs à chaque palier (dégâts, cadence,
+    portée, vitesse, PV max). Réinitialisé à chaque changement d'arme ou mort.
+    Référence de style : *MO.CO* (Supercell) — XP liée à l'équipement, pas au
+    personnage.
+  - **Reste à faire** : bonus **actifs** (capacités, pas juste des stats) en
+    plus des passifs ; slot de 2 armes simultanées ; station de transfert d'XP
+    entre deux armes ; évolution visuelle du personnage selon la progression.
+  - Combat par projectiles simple → conservé comme base, enrichi par les bonus
+    de l'arme (dégâts/cadence/portée/vitesse modifiés dynamiquement)
   - Lobby de sélection de personnage → à transformer en sélection/apparition
     sur la map avec ramassage d'armes au sol
 
