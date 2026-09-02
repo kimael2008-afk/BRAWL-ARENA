@@ -265,17 +265,18 @@
       const entity = ensureEntity(p);
       entity.container.setPosition(p.x, p.y);
       entity.container.setDepth(p.y);
-      const dir = angleToDir(p.angle);
+      const dir = angleToDir(p.facingAngle != null ? p.facingAngle : p.angle);
+      const aimDir = angleToDir(p.angle);
 
-      // Icône d'arme tenue en main
+      // Icône d'arme tenue en main : position fixe par direction (pas d'orbite continue)
       if (p.weapon && p.weapon !== "fists" && p.alive) {
         const texKey = `wpn_${p.weapon}`;
         if (entity.weaponIcon.texture.key !== texKey) entity.weaponIcon.setTexture(texKey);
         entity.weaponIcon.setVisible(true);
-        entity.weaponIcon.setRotation(p.angle + Math.PI / 4);
-        const hx = Math.cos(p.angle) * 16;
-        const hy = Math.sin(p.angle) * 16 + 8;
-        entity.weaponIcon.setPosition(hx, hy);
+        const slot = HAND_OFFSETS[aimDir];
+        entity.weaponIcon.setPosition(slot.x, slot.y);
+        entity.weaponIcon.setRotation(slot.rot);
+        entity.weaponIcon.setFlipX(aimDir === "left");
       } else {
         entity.weaponIcon.setVisible(false);
       }
@@ -319,13 +320,13 @@
         entity.nameText.visible = true;
 
         const attackAnimName = WEAPON_ATTACK_ANIM[p.weapon] || "attack";
-        const isAttackAnim = entity.currentAnim === `${attackAnimName}_${dir}`;
+        const isAttackAnim = entity.currentAnim === `${attackAnimName}_${aimDir}`;
         const attackStillPlaying = isAttackAnim && entity.sprite.anims.isPlaying;
         const newShot = p.shooting && p.lastShot !== lastShotStamp[p.id];
 
         if (newShot) {
           lastShotStamp[p.id] = p.lastShot;
-          playAnim(entity, p.sprite, attackAnimName, dir, true);
+          playAnim(entity, p.sprite, attackAnimName, aimDir, true);
         } else if (attackStillPlaying) {
           // laisser l'animation d'attaque se terminer
         } else if (p.moving) {
@@ -422,6 +423,12 @@
 
   const WEAPON_LABELS = { fists: "Poings", sword: "Épée", axe: "Hache", mace: "Masse" };
   const WEAPON_COLORS = { sword: "#4FA8E8", axe: "#5DBE7C", mace: "#E8624F" };
+  const HAND_OFFSETS = {
+    down: { x: 12, y: 10, rot: Math.PI * 0.35 },
+    up: { x: -8, y: -8, rot: Math.PI * 1.1 },
+    left: { x: -14, y: 6, rot: -Math.PI * 0.35 },
+    right: { x: 14, y: 6, rot: Math.PI * 0.35 },
+  };
 
   function drawWeapons() {
     if (!scene) return;

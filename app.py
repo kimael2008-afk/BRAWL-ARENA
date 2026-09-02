@@ -23,7 +23,7 @@ PROJECTILE_RADIUS = 5
 
 # --- Armes au sol ---
 MAX_WEAPONS_ON_GROUND = 16
-WEAPON_SPAWN_CHANCE_PER_TICK = 0.09
+WEAPON_SPAWN_CHANCE_PER_TICK = 0.3
 WEAPON_PICKUP_RADIUS = 26
 
 WEAPON_TYPES = {
@@ -242,7 +242,7 @@ def public_player(p):
         "x": p["x"],
         "y": p["y"],
         "angle": p["angle"],
-        "health": p["health"],
+        "facingAngle": p["facingAngle"],
         "maxHealth": p["maxHealth"],
         "alive": p["alive"],
         "moving": (abs(p["dx"]) > 0.01 or abs(p["dy"]) > 0.01),
@@ -293,6 +293,7 @@ def on_join(data):
         "x": x,
         "y": y,
         "angle": 0,
+        "facingAngle": math.pi / 2,  # direction du sprite (marche), distincte de la visée
         "dx": 0,
         "dy": 0,
         "speed": char["speed"],
@@ -332,6 +333,8 @@ def on_input(data):
     if norm > 1:
         dx, dy = dx / norm, dy / norm
     p["dx"], p["dy"] = dx, dy
+    if norm > 0.01:
+        p["facingAngle"] = math.atan2(dy, dx)
     if "angle" in data:
         p["angle"] = float(data["angle"])
     if "shooting" in data:
@@ -443,6 +446,23 @@ def game_loop():
 
             if (proj["traveled"] > proj["range"] or proj["x"] < 0 or
                     proj["x"] > ARENA_W or proj["y"] < 0 or proj["y"] > ARENA_H):
+                del projectiles[pid]
+                continue
+
+            # Un obstacle du décor (arbre, rocher, souche) bloque le projectile
+            cx, cy = int(proj["x"] // _OBSTACLE_CELL), int(proj["y"] // _OBSTACLE_CELL)
+            blocked = False
+            for gx in (cx - 1, cx, cx + 1):
+                for gy in (cy - 1, cy, cy + 1):
+                    for ox, oy, orad in _obstacle_grid.get((gx, gy), ()):
+                        if (proj["x"] - ox) ** 2 + (proj["y"] - oy) ** 2 < (orad + PROJECTILE_RADIUS) ** 2:
+                            blocked = True
+                            break
+                    if blocked:
+                        break
+                if blocked:
+                    break
+            if blocked:
                 del projectiles[pid]
                 continue
 
