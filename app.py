@@ -51,7 +51,7 @@ MAX_MONSTERS = 10
 MONSTER_SPAWN_CHANCE_PER_TICK = 0.06
 SLIME_RADIUS = 16
 SLIME_HEALTH = 30
-SLIME_LIFESPAN = 60.0   # secondes avant disparition si pas tué
+SLIME_LIFESPAN = 180.0  # secondes avant disparition si pas tué (et jamais s'il vient d'être touché)
 SLIME_KILL_REWARD = 1   # ajouté au compteur de kills du tueur
 SLIME_SPEED = 55
 SLIME_CONTACT_DAMAGE = 3
@@ -270,6 +270,26 @@ def in_obstacle(x, y, margin=0):
     return False
 
 
+def _generate_flower_patches():
+    """Décor purement visuel (pas de collision), évite juste de recouvrir un obstacle."""
+    rng = random.Random(4242)
+    placed = []
+    margin = 60
+    count = 24
+    attempts = 0
+    while len(placed) < count and attempts < count * 40:
+        attempts += 1
+        x = rng.uniform(margin, ARENA_W - margin)
+        y = rng.uniform(margin, ARENA_H - margin)
+        if in_obstacle(x, y, 40):
+            continue
+        placed.append((x, y))
+    return placed
+
+
+DECOR_FLOWERS = _generate_flower_patches()
+
+
 def spawn_slime():
     mid = str(uuid.uuid4())
     for _ in range(20):
@@ -280,7 +300,7 @@ def spawn_slime():
     angle = random.uniform(0, math.pi * 2)
     monsters[mid] = {
         "id": mid,
-        "type": "slime",
+        "type": "orc",
         "x": x,
         "y": y,
         "health": SLIME_HEALTH,
@@ -289,6 +309,9 @@ def spawn_slime():
         "moveAngle": angle,
         "nextTurnAt": time.time() + random.uniform(1.5, 3.5),
         "lastBite": {},  # sid -> timestamp du dernier contact
+        "justAttacked": 0,
+        "justDied": 0,
+        "alive": True,
     }
 
 
@@ -300,6 +323,10 @@ def public_monster(m):
         "y": m["y"],
         "health": m["health"],
         "maxHealth": m["maxHealth"],
+        "moveAngle": m["moveAngle"],
+        "justAttacked": m["justAttacked"],
+        "justDied": m["justDied"],
+        "alive": m["alive"],
     }
 
 
@@ -423,7 +450,51 @@ def on_input(data):
         p["shooting"] = bool(data["shooting"])
 
 
-def spawn_projectile(p):
+MELEE_HALF_CONE = math.radians(50)  # demi-angle du cône d'attaque au corps-à-corps
+
+
+def angle_diff(a, b):
+    d = (a - b + math.pi) % (2 * math.pi) - math.pi
+    return d
+
+
+def melee_attack(p, now):
+    """Frappe immédiate au corps-à-corps : touche tout ce qui est dans la portée
+    de la lame et dans le cône de balayage, sans aucun projectile."""
+    reach = p["range"]
+
+    for sid, target in players.items():
+        if sid == p["id"] or not target["alive"]:
+            continue
+        dx, dy = target["x"] - p["x"], target["y"] - p["y"]
+        dist = math.hypot(dx, dy)
+        if dist > reach + PLAYER_RADIUS:
+            continue
+        if abs(angle_diff(math.atan2(dy, dx), p["angle"])) > MELEE_HALF_CONE:
+            continue
+        target["health"] -= p["damage"]
+        target["justHit"] = now
+        if target["health"] <= 0 and target["alive"]:
+            kill_player(target, now)
+            p["kills"] += 1
+            award_weapon_xp(p, WEAPON_XP_PER_PLAYER_KILL, now)
+
+    for mid, m in list(monsters.items()):
+        if not m["alive"]:
+            continue
+        dx, dy = m["x"] - p["x"], m["y"] - p["y"]
+        dist = math.hypot(dx, dy)
+        if dist > reach + SLIME_RADIUS:
+            continue
+        if abs(angle_diff(math.atan2(dy, dx), p["angle"])) > MELEE_HALF_CONE:
+            continue
+        m["health"] -= p["damage"]
+        m["spawnAt"] = now  # un monstre engagé au combat ne doit jamais expirer
+        if m["health"] <= 0 and m["alive"]:
+            m["alive"] = False
+            m["justDied"] = now
+            p["kills"] += SLIME_KILL_REWARD
+            award_weapon_xp(p, WEAPON_XP_PER_MONSTER_KILL, now)
     pid = str(uuid.uuid4())
     projectiles[pid] = {
         "id": pid,
@@ -449,15 +520,19 @@ def game_loop():
         dt = now - last
         last = now
 
-        # Cycle de vie des slimes : expiration puis apparition aléatoire
+        # Cycle de vie des slimes : expiration, nettoyage après mort, apparition aléatoire
         for mid, m in list(monsters.items()):
-            if now - m["spawnAt"] > SLIME_LIFESPAN:
+            if not m["alive"] and now - m["justDied"] > 0.9:
+                del monsters[mid]
+            elif m["alive"] and now - m["spawnAt"] > SLIME_LIFESPAN:
                 del monsters[mid]
         if len(monsters) < MAX_MONSTERS and random.random() < MONSTER_SPAWN_CHANCE_PER_TICK:
             spawn_slime()
 
         # Déplacement erratique des slimes + collision de contact avec les joueurs
         for m in monsters.values():
+            if not m["alive"]:
+                continue
             if now >= m["nextTurnAt"]:
                 m["moveAngle"] = random.uniform(0, math.pi * 2)
                 m["nextTurnAt"] = now + random.uniform(1.5, 3.5)
@@ -482,6 +557,8 @@ def game_loop():
                     last = m["lastBite"].get(sid, 0)
                     if now - last >= SLIME_CONTACT_COOLDOWN:
                         m["lastBite"][sid] = now
+                        m["justAttacked"] = now
+                        m["moveAngle"] = math.atan2(p["y"] - m["y"], p["x"] - m["x"])
                         p["health"] -= SLIME_CONTACT_DAMAGE
                         p["justHit"] = now
                         if p["health"] <= 0 and p["alive"]:
@@ -520,7 +597,7 @@ def game_loop():
 
             if p["shooting"] and (now - p["lastShot"]) >= p["fireRate"]:
                 p["lastShot"] = now
-                spawn_projectile(p)
+                melee_attack(p, now)
 
         # Mouvement des projectiles + collisions
         for pid, proj in list(projectiles.items()):
@@ -562,6 +639,8 @@ def game_loop():
             hit_mid = None
             if not hit_sid:
                 for mid, m in monsters.items():
+                    if not m["alive"]:
+                        continue
                     dist = math.hypot(m["x"] - proj["x"], m["y"] - proj["y"])
                     if dist <= SLIME_RADIUS + PROJECTILE_RADIUS:
                         hit_mid = mid
@@ -570,8 +649,9 @@ def game_loop():
             if hit_mid:
                 m = monsters[hit_mid]
                 m["health"] -= proj["damage"]
-                if m["health"] <= 0:
-                    del monsters[hit_mid]
+                if m["health"] <= 0 and m["alive"]:
+                    m["alive"] = False
+                    m["justDied"] = now
                     shooter = players.get(proj["owner"])
                     if shooter:
                         shooter["kills"] += SLIME_KILL_REWARD

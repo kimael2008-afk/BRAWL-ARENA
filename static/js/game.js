@@ -168,6 +168,11 @@
     this.load.image("wpn_sword", "static/assets/weapons/sword.png");
     this.load.image("wpn_axe", "static/assets/weapons/axe.png");
     this.load.image("wpn_mace", "static/assets/weapons/mace.png");
+    this.load.spritesheet("monster_idle", "static/assets/monster/idle.png", { frameWidth: 100, frameHeight: 100 });
+    this.load.spritesheet("monster_walk", "static/assets/monster/walk.png", { frameWidth: 100, frameHeight: 100 });
+    this.load.spritesheet("monster_attack", "static/assets/monster/attack.png", { frameWidth: 100, frameHeight: 100 });
+    this.load.spritesheet("monster_hurt", "static/assets/monster/hurt.png", { frameWidth: 100, frameHeight: 100 });
+    this.load.spritesheet("monster_death", "static/assets/monster/death.png", { frameWidth: 100, frameHeight: 100 });
     SPRITE_KEYS.forEach((key) => {
       this.load.spritesheet(`${key}_idle`, `static/assets/${key}/idle.png`, { frameWidth: 64, frameHeight: 64 });
       this.load.spritesheet(`${key}_walk`, `static/assets/${key}/walk.png`, { frameWidth: 64, frameHeight: 64 });
@@ -222,6 +227,12 @@
       });
     });
 
+    this.anims.create({ key: "monster_idle", frames: this.anims.generateFrameNumbers("monster_idle", { start: 0, end: 5 }), frameRate: 6, repeat: -1 });
+    this.anims.create({ key: "monster_walk", frames: this.anims.generateFrameNumbers("monster_walk", { start: 0, end: 7 }), frameRate: 9, repeat: -1 });
+    this.anims.create({ key: "monster_attack", frames: this.anims.generateFrameNumbers("monster_attack", { start: 0, end: 5 }), frameRate: 12, repeat: 0 });
+    this.anims.create({ key: "monster_hurt", frames: this.anims.generateFrameNumbers("monster_hurt", { start: 0, end: 3 }), frameRate: 10, repeat: 0 });
+    this.anims.create({ key: "monster_death", frames: this.anims.generateFrameNumbers("monster_death", { start: 0, end: 3 }), frameRate: 7, repeat: 0 });
+
     this.projGraphics = this.add.graphics().setDepth(1000);
     this.monsterGraphics = this.add.graphics().setDepth(999);
     this.weaponGraphics = this.add.graphics().setDepth(998);
@@ -252,7 +263,7 @@
     const sprite = scene.add.sprite(0, 8, `${p.sprite}_idle`, 0).setOrigin(0.484, 0.703).setScale(1.2);
     if (p.tint) sprite.setTint(parseInt(p.tint, 16));
 
-    const weaponIcon = scene.add.image(14, 6, "wpn_sword").setOrigin(0.5, 0.8).setScale(1.3).setVisible(false);
+    const weaponIcon = scene.add.image(14, 6, "wpn_sword").setOrigin(0.5, 0.8).setScale(2.4).setVisible(false).setDepth(3);
 
     const nameText = scene.add.text(0, -46, p.name, {
       fontFamily: "Rubik, sans-serif",
@@ -352,6 +363,7 @@
         if (newShot) {
           lastShotStamp[p.id] = p.lastShot;
           playAnim(entity, p.sprite, attackAnimName, aimDir, true);
+          spawnSlashEffect(p);
         } else if (attackStillPlaying) {
           // laisser l'animation d'attaque se terminer
         } else if (p.moving) {
@@ -412,37 +424,99 @@
     });
   }
 
+  const monsterEntities = {}; // id -> { container, sprite, hpFill, currentAnim }
+  const lastMonsterHealth = {};
+  const lastMonsterAttack = {};
+  const lastMonsterDeath = {};
+
+  function ensureMonsterEntity(m) {
+    if (monsterEntities[m.id]) return monsterEntities[m.id];
+    const container = scene.add.container(m.x, m.y).setDepth(500);
+    const shadow = scene.add.ellipse(0, 16, 22, 8, 0x000000, 0.4);
+    const sprite = scene.add.sprite(0, 0, "monster_idle", 0).setOrigin(0.5, 0.62).setScale(0.55);
+    const hpBg = scene.add.rectangle(0, -30, 34, 5, 0x2a2e3b).setOrigin(0.5);
+    const hpFill = scene.add.rectangle(-17, -30, 34, 5, 0x5dbe7c).setOrigin(0, 0.5);
+    container.add([shadow, sprite, hpBg, hpFill]);
+    const entity = { container, sprite, hpFill, currentAnim: "idle" };
+    monsterEntities[m.id] = entity;
+    return entity;
+  }
+
+  function playMonsterAnim(entity, name, restart) {
+    if (entity.currentAnim === name && !restart) return;
+    entity.currentAnim = name;
+    entity.sprite.play(`monster_${name}`);
+  }
+
   function drawMonsters() {
     if (!scene) return;
-    scene.monsterGraphics.clear();
-    const t = scene.time.now / 1000;
+    const seen = new Set();
 
     latestState.monsters.forEach((m) => {
-      const jiggle = 1 + Math.sin(t * 6 + m.x) * 0.08;
-      const w = 22 * jiggle;
-      const h = 16 / jiggle;
+      seen.add(m.id);
+      const entity = ensureMonsterEntity(m);
+      entity.container.setPosition(m.x, m.y);
+      entity.sprite.setFlipX(Math.cos(m.moveAngle || 0) < 0);
 
-      // corps gélatineux
-      scene.monsterGraphics.fillStyle(0x5dbe7c, 0.9);
-      scene.monsterGraphics.fillEllipse(m.x, m.y, w, h);
-      scene.monsterGraphics.lineStyle(2, 0x2f7a45, 1);
-      scene.monsterGraphics.strokeEllipse(m.x, m.y, w, h);
-
-      // reflet
-      scene.monsterGraphics.fillStyle(0xaef0c0, 0.6);
-      scene.monsterGraphics.fillEllipse(m.x - w * 0.2, m.y - h * 0.25, w * 0.35, h * 0.3);
-
-      // yeux
-      scene.monsterGraphics.fillStyle(0x1a1d26, 1);
-      scene.monsterGraphics.fillCircle(m.x - 5, m.y - 2, 1.6);
-      scene.monsterGraphics.fillCircle(m.x + 5, m.y - 2, 1.6);
-
-      // barre de vie
       const ratio = Math.max(0, m.health / m.maxHealth);
-      scene.monsterGraphics.fillStyle(0x2a2e3b, 1);
-      scene.monsterGraphics.fillRect(m.x - 16, m.y - h - 10, 32, 4);
-      scene.monsterGraphics.fillStyle(0x5dbe7c, 1);
-      scene.monsterGraphics.fillRect(m.x - 16, m.y - h - 10, 32 * ratio, 4);
+      entity.hpFill.width = 34 * ratio;
+
+      if (!m.alive) {
+        entity.hpFill.visible = false;
+        if (m.justDied && m.justDied !== lastMonsterDeath[m.id]) {
+          lastMonsterDeath[m.id] = m.justDied;
+          playMonsterAnim(entity, "death", true);
+        }
+        return;
+      }
+      entity.hpFill.visible = true;
+
+      const attackAnimPlaying = entity.currentAnim === "attack" && entity.sprite.anims.isPlaying;
+      const hurtAnimPlaying = entity.currentAnim === "hurt" && entity.sprite.anims.isPlaying;
+      const newAttack = m.justAttacked && m.justAttacked !== lastMonsterAttack[m.id];
+      const tookDamage = lastMonsterHealth[m.id] !== undefined && m.health < lastMonsterHealth[m.id];
+      lastMonsterHealth[m.id] = m.health;
+
+      if (newAttack) {
+        lastMonsterAttack[m.id] = m.justAttacked;
+        playMonsterAnim(entity, "attack", true);
+      } else if (attackAnimPlaying) {
+        // laisser l'attaque se terminer
+      } else if (tookDamage) {
+        playMonsterAnim(entity, "hurt", true);
+      } else if (hurtAnimPlaying) {
+        // laisser la réaction se terminer
+      } else {
+        playMonsterAnim(entity, "walk");
+      }
+    });
+
+    Object.keys(monsterEntities).forEach((id) => {
+      if (!seen.has(id)) {
+        monsterEntities[id].container.destroy();
+        delete monsterEntities[id];
+        delete lastMonsterHealth[id];
+        delete lastMonsterAttack[id];
+        delete lastMonsterDeath[id];
+      }
+    });
+  }
+
+  const WEAPON_REACH = { fists: 180, sword: 300, axe: 480, mace: 220 };
+
+  function spawnSlashEffect(p) {
+    const reach = WEAPON_REACH[p.weapon] || 180;
+    const color = parseInt((WEAPON_COLORS[p.weapon] || "#ffffff").replace("#", "0x"));
+    const g = scene.add.graphics().setDepth(997);
+    g.lineStyle(4, color, 0.9);
+    g.beginPath();
+    g.arc(p.x, p.y, reach * 0.75, p.angle - 0.6, p.angle + 0.6, false);
+    g.strokePath();
+    scene.tweens.add({
+      targets: g,
+      alpha: 0,
+      duration: 180,
+      onComplete: () => g.destroy(),
     });
   }
 
@@ -463,15 +537,11 @@
     latestState.weapons.forEach((w) => {
       const color = parseInt((w.color || "#ffffff").replace("#", "0x"));
 
-      // ombre au sol (fixe, ne suit pas le flottement)
-      scene.weaponGraphics.fillStyle(0x000000, 0.35);
-      scene.weaponGraphics.fillEllipse(w.x, w.y + 16, 20, 6);
-
-      // halo lumineux pulsant
+      // halo lumineux pulsant (pas d'ombre sombre pour éviter tout artefact visuel)
       const pulse = 24 + Math.sin(t * 4 + w.x) * 4;
-      scene.weaponGraphics.fillStyle(color, 0.25);
+      scene.weaponGraphics.fillStyle(color, 0.22);
       scene.weaponGraphics.fillCircle(w.x, w.y, pulse);
-      scene.weaponGraphics.fillStyle(0xffffff, 0.12);
+      scene.weaponGraphics.fillStyle(0xffffff, 0.1);
       scene.weaponGraphics.fillCircle(w.x, w.y, pulse * 0.55);
     });
 
@@ -489,7 +559,7 @@
       const bob = Math.sin(t * 3 + w.x) * 4;
       if (!weaponIconSprites[w.id]) {
         weaponIconSprites[w.id] = scene.add.image(w.x, w.y + bob, `wpn_${w.type}`)
-          .setScale(1.8).setDepth(998);
+          .setScale(3.2).setDepth(998);
       } else {
         weaponIconSprites[w.id].setPosition(w.x, w.y + bob);
       }
@@ -515,7 +585,7 @@
           fontStyle: "600",
           color: "#ffffff",
           stroke: "#14161c",
-          strokeThickness: 3,
+          strokeThickness: 2,
         }).setOrigin(0.5).setDepth(998);
       } else {
         weaponLabelTexts[w.id].setPosition(w.x, w.y - 30);
